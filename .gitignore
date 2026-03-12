@@ -1,0 +1,6 @@
+.venv/
+node_modules/
+node_modules/.bin/
+.expo/
+android
+__pycache__/

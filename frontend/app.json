@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Insurance App",
+    "slug": "insurance-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#F5F1EA"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.insuranceapp.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F1EA"
+      },
+      "package": "com.insuranceapp.app"
+    }
+  }
+}
