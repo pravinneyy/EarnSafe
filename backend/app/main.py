@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import user_router, policy_router, claim_router
+from app.routers import user_router, policy_router, claim_router, weather_router
 
 app = FastAPI(
     title="Insurance API",
@@ -16,9 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register routers
 app.include_router(user_router.router)
 app.include_router(policy_router.router)
 app.include_router(claim_router.router)
+app.include_router(weather_router.router)
 
 
 @app.get("/", tags=["Health"])
