@@ -81,7 +81,7 @@ These two scenarios define the core value of the platform:
 | Standard | Rs. 49         | Rs. 500                 | Rs. 2500          |
 | Pro      | Rs. 89         | Rs. 800                 | Rs. 4000          |
 
-These values are not stipulated abd might change as we work on our prototye
+These values are not stipulated and might change as we work on our prototype
 
 ### Pricing logic
 
