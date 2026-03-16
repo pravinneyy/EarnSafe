@@ -1,49 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import {
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { RefreshControl, StyleSheet, Text, View, Dimensions } from 'react-native';
+import MapView, { Marker } from 'react-native-maps'; // NEW: Mobile Maps
 
 import { getUserClaims } from '../../../services/api';
+import { getLiveWeather } from '../../../services/api/weatherApi'; // NEW
 import ClaimListItem from '../../claims/components/ClaimListItem';
 import { DISRUPTION_OPTIONS } from '../../claims/constants';
-import {
-  AppButton,
-  AppCard,
-  AppPill,
-  Screen,
-  SectionHeading,
-} from '../../../shared/components';
+import { AppButton, AppCard, AppPill, Screen, SectionHeading } from '../../../shared/components';
 import { colors, spacing } from '../../../shared/theme';
-import {
-  formatCurrency,
-  formatPercentFromScore,
-  toTitleCase,
-} from '../../../shared/utils/format';
+import { formatCurrency, formatPercentFromScore, toTitleCase } from '../../../shared/utils/format';
 
 export default function HomeScreen({ route, navigation }) {
   const { user, policy } = route.params;
   const [claims, setClaims] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [weather, setWeather] = useState(null); // NEW: Weather State
 
-  async function loadClaims() {
+  // Default coordinates (In production, use navigator.geolocation)
+  const [location] = useState({
+    latitude: 19.0760, 
+    longitude: 72.8777,
+  });
+
+  async function loadData() {
     try {
-      const data = await getUserClaims(user.id);
-      setClaims([...data].sort((left, right) => right.id - left.id));
+      const [claimsData, weatherData] = await Promise.all([
+        getUserClaims(user.id),
+        getLiveWeather(location.latitude, location.longitude)
+      ]);
+      setClaims([...claimsData].sort((left, right) => right.id - left.id));
+      setWeather(weatherData);
     } catch (_error) {
-      setClaims([]);
+      console.log("Error loading dashboard data");
     }
   }
 
   useEffect(() => {
-    loadClaims();
+    loadData();
   }, [user.id]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await loadClaims();
+    await loadData();
     setRefreshing(false);
   }
 
@@ -54,55 +52,76 @@ export default function HomeScreen({ route, navigation }) {
   return (
     <Screen
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor={colors.primary}
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
       }
     >
       <SectionHeading
         title={`Welcome back, ${user.name.split(' ')[0]}`}
-        subtitle="Your coverage is active. Review your plan, monitor covered events, and check automatically triggered claims."
+        subtitle="Your coverage is active. We are monitoring your zone for disruptions."
       />
 
+      {/* NEW: Live Weather & AQI Monitoring Card */}
+      <SectionHeading title="Live Monitoring" subtitle="Real-time environmental data for your zone." />
+      <AppCard style={styles.weatherCard}>
+        {weather ? (
+          <>
+            <View style={styles.weatherRow}>
+              <View>
+                <Text style={styles.tempText}>{Math.round(weather.temperature)}°C</Text>
+                <Text style={styles.conditionText}>{toTitleCase(weather.weather_condition)}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <AppPill 
+                  label={`AQI: ${weather.aqi}`} 
+                  tone={weather.aqi >= 4 ? "danger" : weather.aqi === 3 ? "warning" : "success"} 
+                />
+                <Text style={styles.statusText}>
+                  {weather.parametric_analysis.is_disrupted ? "⚠️ Disruption Detected" : "✅ Status: Safe"}
+                </Text>
+              </View>
+            </View>
+
+            {/* Mobile Map Component */}
+            <View style={styles.mapContainer}>
+              <MapView
+                style={styles.map}
+                initialRegion={{
+                  ...location,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                }}
+                scrollEnabled={false}
+              >
+                <Marker coordinate={location} title="Your Insured Zone" />
+              </MapView>
+            </View>
+          </>
+        ) : (
+          <Text>Loading live environment data...</Text>
+        )}
+      </AppCard>
+
+      {/* ... (Existing Coverage Card remains same) ... */}
       <AppCard style={styles.coverageCard}>
-        <View style={styles.coverageHeader}>
+         <View style={styles.coverageHeader}>
           <View>
-            <Text style={styles.coverageTitle}>
-              {toTitleCase(policy.plan_tier)} Shield
-            </Text>
+            <Text style={styles.coverageTitle}>{toTitleCase(policy.plan_tier)} Shield</Text>
             <Text style={styles.coverageSubtitle}>Current policy</Text>
           </View>
           <AppPill label="Active" tone="success" />
         </View>
 
         <View style={styles.statGrid}>
-          <OverviewStat
-            label="Daily coverage"
-            value={formatCurrency(policy.daily_coverage)}
-          />
-          <OverviewStat
-            label="Weekly premium"
-            value={formatCurrency(policy.weekly_premium)}
-          />
-          <OverviewStat
-            label="Max payout"
-            value={formatCurrency(policy.max_weekly_payout)}
-          />
-          <OverviewStat
-            label="Risk score"
-            value={formatPercentFromScore(user.risk_score)}
-          />
+          <OverviewStat label="Daily coverage" value={formatCurrency(policy.daily_coverage)} />
+          <OverviewStat label="Weekly premium" value={formatCurrency(policy.weekly_premium)} />
+          <OverviewStat label="Max payout" value={formatCurrency(policy.max_weekly_payout)} />
+          <OverviewStat label="Risk score" value={formatPercentFromScore(user.risk_score)} />
         </View>
 
         <View style={styles.metaBlock}>
           <Text style={styles.metaLine}>City: {user.city}</Text>
           <Text style={styles.metaLine}>Zone: {user.delivery_zone}</Text>
-          <Text style={styles.metaLine}>Platform: {toTitleCase(user.platform)}</Text>
-          <Text style={styles.metaLine}>
-            Total paid out: {formatCurrency(totalPaid)}
-          </Text>
+          <Text style={styles.metaLine}>Total paid out: {formatCurrency(totalPaid)}</Text>
         </View>
       </AppCard>
 
@@ -113,38 +132,21 @@ export default function HomeScreen({ route, navigation }) {
         style={styles.secondaryAction}
       />
 
-      <SectionHeading
-        title="Covered events"
-        subtitle="These are the disruption types the product is designed around."
-      />
+      <SectionHeading title="Covered events" subtitle="Disruption types we monitor." />
       <View style={styles.coveredEvents}>
         {DISRUPTION_OPTIONS.map(option => (
-          <AppPill
-            key={option.key}
-            label={option.label}
-            tone="neutral"
-            style={styles.eventPill}
-          />
+          <AppPill key={option.key} label={option.label} tone="neutral" style={styles.eventPill} />
         ))}
       </View>
 
-      <SectionHeading
-        title="Recent claims"
-        subtitle="Latest automatically triggered claims for this worker."
-      />
-
+      <SectionHeading title="Recent claims" subtitle="Latest automatically triggered claims." />
       {claims.length === 0 ? (
         <AppCard>
           <Text style={styles.emptyTitle}>No automated claims yet</Text>
-          <Text style={styles.emptyText}>
-            When a verified disruption affects this worker's insured zone, the
-            generated claim will appear here with status and payout details.
-          </Text>
+          <Text style={styles.emptyText}>When a disruption is verified, your claim will appear here.</Text>
         </AppCard>
       ) : (
-        claims.slice(0, 3).map(claim => (
-          <ClaimListItem key={claim.id} claim={claim} />
-        ))
+        claims.slice(0, 3).map(claim => <ClaimListItem key={claim.id} claim={claim} />)
       )}
     </Screen>
   );
@@ -160,75 +162,29 @@ function OverviewStat({ label, value }) {
 }
 
 const styles = StyleSheet.create({
-  coverageCard: {
-    marginBottom: spacing.lg,
-  },
-  coverageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  coverageTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  coverageSubtitle: {
-    color: colors.textSoft,
-    fontSize: 14,
-  },
-  statGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: spacing.sm,
-  },
-  statItem: {
-    width: '50%',
-    marginBottom: spacing.md,
-  },
-  statValue: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  statLabel: {
-    color: colors.textSoft,
-    fontSize: 13,
-  },
-  metaBlock: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-  },
-  metaLine: {
-    color: colors.textSoft,
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  secondaryAction: {
-    marginBottom: spacing.lg,
-  },
-  coveredEvents: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: spacing.lg,
-  },
-  eventPill: {
-    marginRight: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  emptyText: {
-    color: colors.textSoft,
-    fontSize: 14,
-    lineHeight: 22,
-  },
+  // NEW STYLES
+  weatherCard: { marginBottom: spacing.lg, padding: spacing.md },
+  weatherRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md },
+  tempText: { fontSize: 32, fontWeight: 'bold', color: colors.text },
+  conditionText: { fontSize: 16, color: colors.textSoft },
+  statusText: { marginTop: 8, fontWeight: '600', fontSize: 12 },
+  mapContainer: { height: 150, width: '100%', borderRadius: 12, overflow: 'hidden', marginTop: 10 },
+  map: { flex: 1 },
+
+  // EXISTING STYLES
+  coverageCard: { marginBottom: spacing.lg },
+  coverageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.md },
+  coverageTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  coverageSubtitle: { color: colors.textSoft, fontSize: 14 },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.sm },
+  statItem: { width: '50%', marginBottom: spacing.md },
+  statValue: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  statLabel: { color: colors.textSoft, fontSize: 13 },
+  metaBlock: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
+  metaLine: { color: colors.textSoft, fontSize: 14, lineHeight: 22 },
+  secondaryAction: { marginBottom: spacing.lg },
+  coveredEvents: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.lg },
+  eventPill: { marginRight: spacing.sm, marginBottom: spacing.sm },
+  emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '600', marginBottom: spacing.xs },
+  emptyText: { color: colors.textSoft, fontSize: 14, lineHeight: 22 },
 });
