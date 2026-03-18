@@ -215,13 +215,14 @@ Database + external data feeds
 - Validation: Pydantic
 - Server: Uvicorn
 - Storage: in-memory mock database
+- Monitoring: Openweather API (AQI + Weather) (Integrated)
 
 ### Planned additions for later phases
 
 - Database: supabase
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
-- Trigger feeds: openweather api , mock apis for civic alerts
+- Trigger feeds: mock apis for civic alerts
 - Payments: Razorpay sandbox or mock UPI simulation
 - Dashboard: simple web admin and analytics panel
 
