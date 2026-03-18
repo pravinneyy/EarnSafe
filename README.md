@@ -209,7 +209,7 @@ Database + external data feeds
 
 ### Current trail-phase stack
 
-- Frontend: React Native with Expo
+- Frontend: React Native with Expo + react-native-maps (Integrated)
 - Navigation: React Navigation
 - Backend: FastAPI
 - Validation: Pydantic
@@ -221,7 +221,7 @@ Database + external data feeds
 - Database: supabase
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
-- Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
+- Trigger feeds: openweather api , mock apis for civic alerts
 - Payments: Razorpay sandbox or mock UPI simulation
 - Dashboard: simple web admin and analytics panel
 
