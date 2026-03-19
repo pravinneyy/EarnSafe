@@ -7,6 +7,9 @@ export function registerUser(body) {
   });
 }
 
-export function listUsers() {
-  return request('/users/');
+export function loginUser(body) {
+  return request('/users/login', {
+    method: 'POST',
+    body,
+  });
 }

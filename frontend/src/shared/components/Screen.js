@@ -2,7 +2,8 @@ import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function Screen({
   children,
@@ -10,16 +11,24 @@ export default function Screen({
   style,
   refreshControl,
   scroll = true,
+  edges = ['top', 'left', 'right'],
+  padded = true,
 }) {
+  const { colors } = useTheme();
+
   return (
     <SafeAreaView
-      style={[styles.safeArea, style]}
-      edges={['top', 'right', 'bottom', 'left']}
+      style={[styles.safeArea, { backgroundColor: colors.background }, style]}
+      edges={edges}
     >
       {scroll ? (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, contentStyle]}
+          contentContainerStyle={[
+            padded && styles.padded,
+            styles.content,
+            contentStyle,
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           refreshControl={refreshControl}
@@ -27,7 +36,9 @@ export default function Screen({
           {children}
         </ScrollView>
       ) : (
-        <View style={[styles.content, contentStyle]}>{children}</View>
+        <View style={[padded && styles.padded, styles.content, contentStyle]}>
+          {children}
+        </View>
       )}
     </SafeAreaView>
   );
@@ -36,13 +47,14 @@ export default function Screen({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   scroll: {
     flex: 1,
   },
-  content: {
+  padded: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
+  },
+  content: {
+    paddingBottom: spacing.xl,
   },
 });

@@ -1,190 +1,445 @@
-import React, { useEffect, useState } from 'react';
-import { RefreshControl, StyleSheet, Text, View, Dimensions } from 'react-native';
-import MapView, { Marker } from 'react-native-maps'; // NEW: Mobile Maps
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Dimensions,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import * as Location from 'expo-location';
 
-import { getUserClaims } from '../../../services/api';
-import { getLiveWeather } from '../../../services/api/weatherApi'; // NEW
-import ClaimListItem from '../../claims/components/ClaimListItem';
-import { DISRUPTION_OPTIONS } from '../../claims/constants';
-import { AppButton, AppCard, AppPill, Screen, SectionHeading } from '../../../shared/components';
-import { colors, spacing } from '../../../shared/theme';
-import { formatCurrency, formatPercentFromScore, toTitleCase } from '../../../shared/utils/format';
+import { getLiveWeather, getAirQuality } from '../../../services/api/weatherApi';
+import { AppPill } from '../../../shared/components';
+import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
+import { useTheme } from '../../../shared/theme/ThemeContext';
 
-export default function HomeScreen({ route, navigation }) {
-  const { user, policy } = route.params;
-  const [claims, setClaims] = useState([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [weather, setWeather] = useState(null); // NEW: Weather State
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-  // Default coordinates (In production, use navigator.geolocation)
-  const [location] = useState({
-    latitude: 19.0760, 
-    longitude: 72.8777,
-  });
+// ─── AQI label mapping ────────────────────────
+const AQI_LABELS = {
+  1: 'Good',
+  2: 'Fair',
+  3: 'Moderate',
+  4: 'Poor',
+  5: 'Very Poor',
+};
 
-  async function loadData() {
-    try {
-      const [claimsData, weatherData] = await Promise.all([
-        getUserClaims(user.id),
-        getLiveWeather(location.latitude, location.longitude)
-      ]);
-      setClaims([...claimsData].sort((left, right) => right.id - left.id));
-      setWeather(weatherData);
-    } catch (_error) {
-      console.log("Error loading dashboard data");
-    }
-  }
+const AQI_COLORS = {
+  1: '#10B981',
+  2: '#34D399',
+  3: '#F59E0B',
+  4: '#EF4444',
+  5: '#DC2626',
+};
 
-  useEffect(() => {
-    loadData();
-  }, [user.id]);
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }
-
-  const totalPaid = claims
-    .filter(claim => claim.status === 'approved')
-    .reduce((sum, claim) => sum + claim.claim_amount, 0);
-
-  return (
-    <Screen
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
-      }
-    >
-      <SectionHeading
-        title={`Welcome back, ${user.name.split(' ')[0]}`}
-        subtitle="Your coverage is active. We are monitoring your zone for disruptions."
-      />
-
-      {/* NEW: Live Weather & AQI Monitoring Card */}
-      <SectionHeading title="Live Monitoring" subtitle="Real-time environmental data for your zone." />
-      <AppCard style={styles.weatherCard}>
-        {weather ? (
-          <>
-            <View style={styles.weatherRow}>
-              <View>
-                <Text style={styles.tempText}>{Math.round(weather.temperature)}°C</Text>
-                <Text style={styles.conditionText}>{toTitleCase(weather.weather_condition)}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <AppPill 
-                  label={`AQI: ${weather.aqi}`} 
-                  tone={weather.aqi >= 4 ? "danger" : weather.aqi === 3 ? "warning" : "success"} 
-                />
-                <Text style={styles.statusText}>
-                  {weather.parametric_analysis.is_disrupted ? "⚠️ Disruption Detected" : "✅ Status: Safe"}
-                </Text>
-              </View>
-            </View>
-
-            {/* Mobile Map Component */}
-            <View style={styles.mapContainer}>
-              <MapView
-                style={styles.map}
-                initialRegion={{
-                  ...location,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
-                }}
-                scrollEnabled={false}
-              >
-                <Marker coordinate={location} title="Your Insured Zone" />
-              </MapView>
-            </View>
-          </>
-        ) : (
-          <Text>Loading live environment data...</Text>
-        )}
-      </AppCard>
-
-      {/* ... (Existing Coverage Card remains same) ... */}
-      <AppCard style={styles.coverageCard}>
-         <View style={styles.coverageHeader}>
-          <View>
-            <Text style={styles.coverageTitle}>{toTitleCase(policy.plan_tier)} Shield</Text>
-            <Text style={styles.coverageSubtitle}>Current policy</Text>
-          </View>
-          <AppPill label="Active" tone="success" />
-        </View>
-
-        <View style={styles.statGrid}>
-          <OverviewStat label="Daily coverage" value={formatCurrency(policy.daily_coverage)} />
-          <OverviewStat label="Weekly premium" value={formatCurrency(policy.weekly_premium)} />
-          <OverviewStat label="Max payout" value={formatCurrency(policy.max_weekly_payout)} />
-          <OverviewStat label="Risk score" value={formatPercentFromScore(user.risk_score)} />
-        </View>
-
-        <View style={styles.metaBlock}>
-          <Text style={styles.metaLine}>City: {user.city}</Text>
-          <Text style={styles.metaLine}>Zone: {user.delivery_zone}</Text>
-          <Text style={styles.metaLine}>Total paid out: {formatCurrency(totalPaid)}</Text>
-        </View>
-      </AppCard>
-
-      <AppButton
-        label="View claim history"
-        variant="secondary"
-        onPress={() => navigation.navigate('ClaimHistory', { user })}
-        style={styles.secondaryAction}
-      />
-
-      <SectionHeading title="Covered events" subtitle="Disruption types we monitor." />
-      <View style={styles.coveredEvents}>
-        {DISRUPTION_OPTIONS.map(option => (
-          <AppPill key={option.key} label={option.label} tone="neutral" style={styles.eventPill} />
-        ))}
-      </View>
-
-      <SectionHeading title="Recent claims" subtitle="Latest automatically triggered claims." />
-      {claims.length === 0 ? (
-        <AppCard>
-          <Text style={styles.emptyTitle}>No automated claims yet</Text>
-          <Text style={styles.emptyText}>When a disruption is verified, your claim will appear here.</Text>
-        </AppCard>
-      ) : (
-        claims.slice(0, 3).map(claim => <ClaimListItem key={claim.id} claim={claim} />)
-      )}
-    </Screen>
-  );
+// ─── Simple weather condition labels ──────────
+function getSimpleWeather(condition) {
+  if (!condition) return 'Loading';
+  const c = condition.toLowerCase();
+  if (c.includes('clear') || c.includes('sun')) return 'Sunny';
+  if (c.includes('cloud') || c.includes('overcast')) return 'Cloudy';
+  if (c.includes('rain') || c.includes('drizzle')) return 'Rainy';
+  if (c.includes('storm') || c.includes('thunder')) return 'Stormy';
+  if (c.includes('snow') || c.includes('sleet')) return 'Snowy';
+  if (c.includes('fog') || c.includes('mist') || c.includes('haze')) return 'Foggy';
+  if (c.includes('wind')) return 'Windy';
+  // Capitalize first letter of first word as fallback
+  return condition.charAt(0).toUpperCase() + condition.slice(1).split(' ')[0];
 }
 
-function OverviewStat({ label, value }) {
+function getWeatherEmoji(condition) {
+  if (!condition) return '🌤️';
+  const c = condition.toLowerCase();
+  if (c.includes('clear') || c.includes('sun')) return '☀️';
+  if (c.includes('cloud')) return '☁️';
+  if (c.includes('rain') || c.includes('drizzle')) return '🌧️';
+  if (c.includes('storm') || c.includes('thunder')) return '⛈️';
+  if (c.includes('snow')) return '🌨️';
+  if (c.includes('fog') || c.includes('mist')) return '🌫️';
+  return '🌤️';
+}
+
+// ───────────────────────────────────────────────
+// Permission Gate
+// ───────────────────────────────────────────────
+function LocationGate({ onRetry }) {
+  const { colors: c } = useTheme();
   return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+    <View style={[gateStyles.container, { backgroundColor: c.background }]}>
+      <View style={[gateStyles.iconCircle, { backgroundColor: c.accentSoft }]}>
+        <Text style={gateStyles.icon}>📍</Text>
+      </View>
+      <Text style={[gateStyles.title, { color: c.text }]}>Location Required</Text>
+      <Text style={[gateStyles.body, { color: c.textSecondary }]}>
+        EarnSafe needs access to your location to show real-time weather
+        conditions and air quality.
+      </Text>
+      <Pressable
+        style={({ pressed }) => [
+          gateStyles.button,
+          pressed && gateStyles.buttonPressed,
+        ]}
+        onPress={onRetry}
+        accessibilityRole="button"
+      >
+        <Text style={gateStyles.buttonText}>Grant Permission</Text>
+      </Pressable>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  // NEW STYLES
-  weatherCard: { marginBottom: spacing.lg, padding: spacing.md },
-  weatherRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md },
-  tempText: { fontSize: 32, fontWeight: 'bold', color: colors.text },
-  conditionText: { fontSize: 16, color: colors.textSoft },
-  statusText: { marginTop: 8, fontWeight: '600', fontSize: 12 },
-  mapContainer: { height: 150, width: '100%', borderRadius: 12, overflow: 'hidden', marginTop: 10 },
-  map: { flex: 1 },
+const gateStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  icon: { fontSize: 40 },
+  title: {
+    ...typography.h1,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  body: {
+    ...typography.body,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    lineHeight: 22,
+  },
+  button: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    ...shadows.glow,
+  },
+  buttonPressed: { opacity: 0.85, transform: [{ scale: 0.97 }] },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+});
 
-  // EXISTING STYLES
-  coverageCard: { marginBottom: spacing.lg },
-  coverageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.md },
-  coverageTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  coverageSubtitle: { color: colors.textSoft, fontSize: 14 },
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.sm },
-  statItem: { width: '50%', marginBottom: spacing.md },
-  statValue: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  statLabel: { color: colors.textSoft, fontSize: 13 },
-  metaBlock: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
-  metaLine: { color: colors.textSoft, fontSize: 14, lineHeight: 22 },
-  secondaryAction: { marginBottom: spacing.lg },
-  coveredEvents: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.lg },
-  eventPill: { marginRight: spacing.sm, marginBottom: spacing.sm },
-  emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '600', marginBottom: spacing.xs },
-  emptyText: { color: colors.textSoft, fontSize: 14, lineHeight: 22 },
+// ── Map styles ─────────────────────────────────
+const darkMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#080E1A' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#64748B' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#111B2E' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1A2740' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#223352' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#223352' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#111B2E' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+];
+
+const lightMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#f5f5f5' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#c9d6e3' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+];
+
+// ───────────────────────────────────────────────
+// Main Home Screen
+// ───────────────────────────────────────────────
+export default function HomeScreen({ route }) {
+  const { user, policy } = route.params || {};
+  const [weather, setWeather] = useState(null);
+  const [airQuality, setAirQuality] = useState(null);
+  const mapRef = useRef(null);
+  const { isDark, colors: c } = useTheme();
+
+  // Location state
+  const [permissionStatus, setPermissionStatus] = useState('loading');
+  const [location, setLocation] = useState(null);
+  const locationSub = useRef(null);
+  const hasAnimated = useRef(false);
+
+  // ── Request permission & start watcher ──────
+  async function requestLocationPermission() {
+    setPermissionStatus('loading');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setPermissionStatus('granted');
+        startLocationWatcher();
+      } else {
+        setPermissionStatus('denied');
+      }
+    } catch (e) {
+      console.log('Permission error', e);
+      setPermissionStatus('denied');
+    }
+  }
+
+  async function startLocationWatcher() {
+    // Get initial position once
+    try {
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      setLocation(coords);
+      if (!hasAnimated.current) {
+        animateToCoords(coords);
+        hasAnimated.current = true;
+      }
+    } catch (_) {}
+
+    // Watch for significant changes only (50m minimum, 30s interval)
+    locationSub.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 30000,    // 30 seconds
+        distanceInterval: 50,   // 50 meters
+      },
+      (pos) => {
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        setLocation(coords);
+      },
+    );
+  }
+
+  function animateToCoords(coords) {
+    mapRef.current?.animateToRegion(
+      { ...coords, latitudeDelta: 0.012, longitudeDelta: 0.012 },
+      600,
+    );
+  }
+
+  useEffect(() => {
+    requestLocationPermission();
+    return () => { locationSub.current?.remove(); };
+  }, []);
+
+  // ── Load weather + AQI ──────────────────────
+  useEffect(() => {
+    if (!location) return;
+
+    async function fetchData() {
+      try {
+        const [weatherData, aqiData] = await Promise.all([
+          getLiveWeather(location.latitude, location.longitude),
+          getAirQuality(location.latitude, location.longitude),
+        ]);
+        if (weatherData) setWeather(weatherData);
+        if (aqiData) setAirQuality(aqiData);
+      } catch (_) {
+        console.log('Error loading weather/AQI');
+      }
+    }
+
+    fetchData();
+  }, [location?.latitude, location?.longitude]);
+
+  // ── Permission gate ─────────────────────────
+  if (permissionStatus === 'loading') {
+    return (
+      <View style={[gateStyles.container, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color={c.accent} />
+        <Text style={[gateStyles.body, { color: c.textSecondary, marginTop: spacing.md }]}>
+          Checking location access…
+        </Text>
+      </View>
+    );
+  }
+
+  if (permissionStatus === 'denied') {
+    return <LocationGate onRetry={requestLocationPermission} />;
+  }
+
+  // ── Derived data ─────────────────────────────
+  const firstName = user?.name?.split(' ')[0] || 'Rider';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  const aqiIndex = airQuality?.aqi || weather?.aqi || null;
+  const aqiDisplay = aqiIndex ? `${aqiIndex}` : '—';
+  const aqiColor = aqiIndex ? (AQI_COLORS[aqiIndex] || '#64748B') : '#64748B';
+  const weatherCondition = getSimpleWeather(weather?.weather_condition);
+  const weatherEmoji = getWeatherEmoji(weather?.weather_condition);
+
+  const region = location
+    ? { latitude: location.latitude, longitude: location.longitude, latitudeDelta: 0.012, longitudeDelta: 0.012 }
+    : { latitude: 19.076, longitude: 72.8777, latitudeDelta: 0.015, longitudeDelta: 0.015 };
+
+  const overlayBg = isDark ? 'rgba(8,14,26,0.88)' : 'rgba(255,255,255,0.92)';
+  const overlayText = isDark ? '#FFFFFF' : '#0F172A';
+  const overlayMuted = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.5)';
+
+  return (
+    <View style={[styles.root, { backgroundColor: c.background }]}>
+      {/* ── FULL-SCREEN MAP ──────────────── */}
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFillObject}
+        initialRegion={region}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+        followsUserLocation={true}
+        customMapStyle={isDark ? darkMapStyle : lightMapStyle}
+      >
+        {location && (
+          <Marker coordinate={location} title="You" description={user?.delivery_zone || ''} />
+        )}
+      </MapView>
+
+      {/* ── TOP OVERLAY: Greeting ─────────── */}
+      <View style={styles.overlayTop}>
+        <View style={[styles.greetingBar, { backgroundColor: overlayBg }]}>
+          <View>
+            <Text style={[styles.greetingSmall, { color: overlayMuted }]}>{greeting}</Text>
+            <Text style={[styles.greetingName, { color: overlayText }]}>{firstName}</Text>
+          </View>
+          <AppPill
+            label={policy ? 'Covered' : 'No Policy'}
+            tone={policy ? 'success' : 'warning'}
+          />
+        </View>
+      </View>
+
+      {/* ── BOTTOM OVERLAY: Weather Strip ── */}
+      <View style={styles.overlayBottom}>
+        {/* Zone bar */}
+        <View style={[styles.zoneBar, { backgroundColor: overlayBg }]}>
+          <Text style={{ fontSize: 14, marginRight: 6 }}>📍</Text>
+          <Text style={[styles.zoneText, { color: overlayText }]}>
+            {user?.delivery_zone || 'Locating…'}
+          </Text>
+          <Text style={[styles.zoneCondition, { color: aqiColor }]}>
+            AQI: {aqiDisplay}
+          </Text>
+        </View>
+
+        {/* Compact weather strip */}
+        <View style={[styles.weatherStrip, { backgroundColor: overlayBg }]}>
+          {/* Temperature */}
+          <View style={styles.weatherItem}>
+            <Text style={styles.weatherEmoji}>🌡️</Text>
+            <Text style={[styles.weatherVal, { color: '#F59E0B' }]}>
+              {weather ? `${Math.round(weather.temperature)}°` : '—'}
+            </Text>
+          </View>
+
+          <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
+
+          {/* AQI */}
+          <View style={styles.weatherItem}>
+            <Text style={styles.weatherEmoji}>💨</Text>
+            <Text style={[styles.weatherVal, { color: aqiColor }]}>AQI {aqiDisplay}</Text>
+          </View>
+
+          <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
+
+          {/* Condition */}
+          <View style={styles.weatherItem}>
+            <Text style={styles.weatherEmoji}>{weatherEmoji}</Text>
+            <Text style={[styles.weatherVal, { color: '#3B82F6' }]}>{weatherCondition}</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ── Styles ─────────────────────────────────────
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+
+  // Top
+  overlayTop: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 54 : 36,
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 10,
+  },
+  greetingBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  greetingSmall: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  greetingName: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+
+  // Bottom
+  overlayBottom: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 10,
+  },
+
+  // Zone bar
+  zoneBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  zoneText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  zoneCondition: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Weather strip — compact single row
+  weatherStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.sm,
+  },
+  weatherItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  weatherEmoji: {
+    fontSize: 16,
+    marginRight: 4,
+  },
+  weatherVal: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  weatherDivider: {
+    width: 1,
+    height: 20,
+    opacity: 0.3,
+  },
 });

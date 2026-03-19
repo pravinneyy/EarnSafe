@@ -1,26 +1,48 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, radii, shadows, spacing } from '../theme';
+import { radii, shadows, spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
-export default function AppCard({ children, style, toned = false }) {
+export default function AppCard({
+  children,
+  style,
+  variant = 'default',
+  noPadding = false,
+}) {
+  const { colors } = useTheme();
+
+  const variantStyle =
+    variant === 'navy'
+      ? { backgroundColor: colors.navy800, borderColor: colors.borderNavy }
+      : variant === 'muted'
+      ? { backgroundColor: colors.surfaceMuted, borderColor: colors.border, ...noShadow }
+      : { backgroundColor: colors.surface, borderColor: colors.borderLight };
+
   return (
-    <View style={[styles.card, toned && styles.tonedCard, style]}>
+    <View
+      style={[
+        styles.card,
+        variantStyle,
+        noPadding && styles.noPadding,
+        style,
+      ]}
+    >
       {children}
     </View>
   );
 }
 
+const noShadow = { shadowOpacity: 0, elevation: 0 };
+
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
     padding: spacing.lg,
+    borderWidth: 1,
     ...shadows.card,
   },
-  tonedCard: {
-    backgroundColor: colors.surfaceMuted,
+  noPadding: {
+    padding: 0,
   },
 });

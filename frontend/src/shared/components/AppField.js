@@ -6,18 +6,28 @@ import {
   View,
 } from 'react-native';
 
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function AppField({ label, error, style, ...props }) {
+  const { colors } = useTheme();
+
   return (
     <View style={[styles.wrapper, style]}>
-      <Text style={styles.label}>{label}</Text>
+      {!!label && <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>}
       <TextInput
-        style={[styles.input, error && styles.inputError]}
-        placeholderTextColor={colors.textSoft}
+        style={[
+          styles.input,
+          {
+            borderColor: error ? colors.danger : colors.border,
+            backgroundColor: error ? colors.dangerSoft : colors.surface,
+            color: colors.text,
+          },
+        ]}
+        placeholderTextColor={colors.textMuted}
         {...props}
       />
-      {!!error && <Text style={styles.error}>{error}</Text>}
+      {!!error && <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>}
     </View>
   );
 }
@@ -27,27 +37,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   label: {
-    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs + 2,
   },
   input: {
-    minHeight: 50,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    color: colors.text,
-    fontSize: 15,
+    minHeight: 54,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    fontSize: 16,
     paddingHorizontal: spacing.md,
-  },
-  inputError: {
-    borderColor: colors.danger,
   },
   error: {
     marginTop: spacing.xs,
-    color: colors.danger,
     fontSize: 12,
+    fontWeight: '500',
   },
 });

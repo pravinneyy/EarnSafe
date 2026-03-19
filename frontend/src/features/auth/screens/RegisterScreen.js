@@ -1,97 +1,54 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useTheme } from '../../../shared/theme/ThemeContext';
 import { registerUser } from '../../../services/api';
-import {
-  AppButton,
-  AppCard,
-  AppField,
-  ChoiceChip,
-  Screen,
-  SectionHeading,
-} from '../../../shared/components';
-import { colors, radii, spacing } from '../../../shared/theme';
 
-const CITIES = [
-  'Pune',
-  'Chennai',
-  'Mumbai',
-  'Delhi',
-  'Hyderabad',
-  'Bangalore',
-];
+const { width, height } = Dimensions.get('window');
 
-const PLATFORMS = ['zomato', 'swiggy', 'blinkit', 'zepto'];
+const PLATFORMS = ['Zomato', 'Swiggy'];
 
 export default function RegisterScreen({ navigation }) {
-  const [form, setForm] = useState({
+  const { colors } = useTheme();
+
+  const [formData, setFormData] = useState({
     name: '',
-    phone: '',
-    city: '',
-    delivery_zone: '',
+    username: '',
+    password: '',
     platform: '',
-    weekly_income: '',
+    city: 'Mumbai',
   });
-  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
-  function updateField(key, value) {
-    setForm(current => ({ ...current, [key]: value }));
-    setErrors(current => ({ ...current, [key]: null }));
-  }
-
-  function validate() {
-    const nextErrors = {};
-
-    if (!form.name.trim()) {
-      nextErrors.name = 'Enter your full name.';
-    }
-
-    if (!/^\d{10}$/.test(form.phone)) {
-      nextErrors.phone = 'Use a valid 10-digit mobile number.';
-    }
-
-    if (!form.city) {
-      nextErrors.city = 'Choose your city.';
-    }
-
-    if (!form.delivery_zone.trim()) {
-      nextErrors.delivery_zone = 'Add your delivery zone.';
-    }
-
-    if (!form.platform) {
-      nextErrors.platform = 'Select a platform.';
-    }
-
-    const weeklyIncome = Number(form.weekly_income);
-    if (!weeklyIncome || weeklyIncome <= 0) {
-      nextErrors.weekly_income = 'Enter a valid weekly income.';
-    }
-
-    return nextErrors;
-  }
-
   async function handleRegister() {
-    const nextErrors = validate();
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors);
+    if (!formData.name || !formData.username || !formData.password || !formData.platform) {
+      Alert.alert('Missing fields', 'Please fill in all required details');
       return;
     }
 
     setLoading(true);
     try {
       const user = await registerUser({
-        ...form,
-        weekly_income: Number(form.weekly_income),
+        ...formData,
+        username: formData.username.trim().toLowerCase(),
+        platform: formData.platform.toLowerCase(),
       });
-      navigation.navigate('PlanSelect', { user });
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'PlanSelect', params: { user } }],
+      });
     } catch (error) {
       Alert.alert('Registration failed', error.message);
     } finally {
@@ -100,160 +57,297 @@ export default function RegisterScreen({ navigation }) {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <Screen contentStyle={styles.content}>
-        <View style={styles.hero}>
-          <Text style={styles.brand}> EarnSafe Insurance App</Text>
-          <SectionHeading
-            title="Income protection for delivery workers."
-            subtitle="Create your worker profile to get a weekly quote, or continue into the app if you have already registered."
-          />
-        </View>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Curved Navy Background */}
+      <View style={styles.curveWrapper}>
+        <View style={[styles.curveBg, { backgroundColor: colors.navy800 }]} />
+      </View>
 
-        <AppCard style={styles.formCard}>
-          <AppField
-            label="Full name"
-            placeholder="Ravi Kumar"
-            value={form.name}
-            onChangeText={value => updateField('name', value)}
-            error={errors.name}
-          />
-          <AppField
-            label="Mobile number"
-            placeholder="9876543210"
-            keyboardType="phone-pad"
-            maxLength={10}
-            value={form.phone}
-            onChangeText={value => updateField('phone', value)}
-            error={errors.phone}
-          />
-          <AppField
-            label="Delivery zone"
-            placeholder="Koregaon Park"
-            value={form.delivery_zone}
-            onChangeText={value => updateField('delivery_zone', value)}
-            error={errors.delivery_zone}
-          />
-          <AppField
-            label="Weekly income"
-            placeholder="4000"
-            keyboardType="numeric"
-            value={form.weekly_income}
-            onChangeText={value => updateField('weekly_income', value)}
-            error={errors.weekly_income}
-          />
+      <SafeAreaView edges={['top']} style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
 
-          <View style={styles.group}>
-            <Text style={styles.groupLabel}>City</Text>
-            {!!errors.city && <Text style={styles.groupError}>{errors.city}</Text>}
-            <View style={styles.chipRow}>
-              {CITIES.map(city => (
-                <ChoiceChip
-                  key={city}
-                  label={city}
-                  selected={form.city === city}
-                  onPress={() => updateField('city', city)}
+            {/* ────── TOP NAVY SECTION ────── */}
+            <View style={styles.topSection}>
+              <Text style={[styles.subtitle, { color: colors.accent }]}>REGISTRATION</Text>
+              <Text style={styles.title}>Create an account</Text>
+
+              {/* Full Name */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Full name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Adam Smith"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={formData.name}
+                  onChangeText={val => setFormData({ ...formData, name: val })}
                 />
-              ))}
-            </View>
-          </View>
+              </View>
 
-          <View style={styles.group}>
-            <Text style={styles.groupLabel}>Platform</Text>
-            {!!errors.platform && (
-              <Text style={styles.groupError}>{errors.platform}</Text>
-            )}
-            <View style={styles.chipRow}>
-              {PLATFORMS.map(platform => (
-                <ChoiceChip
-                  key={platform}
-                  label={platform.charAt(0).toUpperCase() + platform.slice(1)}
-                  selected={form.platform === platform}
-                  onPress={() => updateField('platform', platform)}
+              {/* Email/Phone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email / Phone</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="adam_smith@email.com"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  value={formData.username}
+                  onChangeText={val => setFormData({ ...formData, username: val })}
                 />
-              ))}
+              </View>
+
+              {/* Password */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="********"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  secureTextEntry
+                  value={formData.password}
+                  onChangeText={val => setFormData({ ...formData, password: val })}
+                />
+              </View>
+
+              {/* Delivery Platform — Button Selector */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Delivery Platform</Text>
+                <View style={styles.platformRow}>
+                  {PLATFORMS.map((p) => {
+                    const isSelected = formData.platform === p;
+                    return (
+                      <Pressable
+                        key={p}
+                        style={[
+                          styles.platformBtn,
+                          isSelected && { backgroundColor: colors.accent, borderColor: colors.accent },
+                        ]}
+                        onPress={() => setFormData({ ...formData, platform: p })}
+                      >
+                        <Text
+                          style={[
+                            styles.platformBtnText,
+                            isSelected && styles.platformBtnTextSelected,
+                          ]}
+                        >
+                          {p}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Terms checkbox */}
+              <View style={styles.termsRow}>
+                <View style={styles.checkbox} />
+                <View style={styles.termsTextColumn}>
+                  <Text style={styles.termsTitle}>Terms of Service</Text>
+                  <Text style={styles.termsBody}>
+                    I accept the <Text style={[styles.termsLink, { color: colors.accent }]}>terms and conditions</Text> as well as the privacy policy
+                  </Text>
+                </View>
+              </View>
+
+              {/* Register Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.registerBtn,
+                  { backgroundColor: colors.accent },
+                  pressed && styles.pressed,
+                ]}
+                onPress={handleRegister}
+                disabled={loading}
+              >
+                <Text style={styles.registerText}>
+                  {loading ? 'Registering...' : 'Register'}
+                </Text>
+              </Pressable>
             </View>
-          </View>
-        </AppCard>
 
-        <AppButton
-          label="Continue"
-          onPress={handleRegister}
-          loading={loading}
-        />
-        <AppButton
-          label="Already registered? Enter app"
-          variant="secondary"
-          onPress={() => navigation.navigate('ExistingUser')}
-          style={styles.secondaryAction}
-        />
+            {/* ────── BOTTOM SECTION ────── */}
+            <View style={styles.bottomSection}>
+              <Text style={[styles.alreadyText, { color: colors.textMuted }]}>
+                Already have an account?
+              </Text>
 
-        <View style={styles.note}>
-          <Text style={styles.noteText}>
-            This is a prototype app
-          </Text>
-        </View>
-      </Screen>
-    </KeyboardAvoidingView>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.loginBtn,
+                  { backgroundColor: colors.navy700 },
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => navigation.navigate('ExistingUser')}
+              >
+                <Text style={styles.loginText}>Login</Text>
+              </Pressable>
+            </View>
+
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: {
+  root: {
     flex: 1,
-    backgroundColor: colors.background,
   },
-  content: {
-    paddingTop: spacing.xl,
+  curveWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    height: height * 0.78,
   },
-  hero: {
-    marginBottom: spacing.lg,
+  curveBg: {
+    position: 'absolute',
+    top: -height * 0.8,
+    left: -width * 0.5,
+    width: width * 2,
+    height: height * 1.5,
+    borderRadius: width,
   },
-  brand: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.full,
-    backgroundColor: colors.primarySoft,
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: spacing.md,
+  safeArea: {
+    flex: 1,
   },
-  formCard: {
-    marginBottom: spacing.lg,
+  keyboardView: {
+    flex: 1,
   },
-  group: {
-    marginTop: spacing.sm,
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+    paddingBottom: 30,
   },
-  groupLabel: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: spacing.sm,
+  topSection: {
+    paddingHorizontal: 32,
+    paddingTop: 50,
   },
-  groupError: {
-    color: colors.danger,
+  subtitle: {
     fontSize: 12,
-    marginBottom: spacing.sm,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
   },
-  chipRow: {
+  title: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '800',
+    marginBottom: 28,
+  },
+  inputGroup: {
+    marginBottom: 18,
+  },
+  label: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 8,
+    height: 52,
+    paddingHorizontal: 16,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+
+  // Platform button selector
+  platformRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 10,
   },
-  note: {
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.xs,
+  platformBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  secondaryAction: {
-    marginTop: spacing.sm,
+  platformBtnText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  noteText: {
-    color: colors.textSoft,
+  platformBtnTextSelected: {
+    color: '#FFFFFF',
+  },
+
+  // Terms
+  termsRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    marginBottom: 24,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: 4,
+    marginRight: 12,
+    marginTop: 2,
+  },
+  termsTextColumn: {
+    flex: 1,
+  },
+  termsTitle: {
+    color: '#FFFFFF',
     fontSize: 13,
-    lineHeight: 20,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  termsBody: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  termsLink: {
+    fontWeight: '600',
+  },
+
+  // Buttons
+  registerBtn: {
+    borderRadius: 8,
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  registerText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // Bottom section
+  bottomSection: {
+    paddingHorizontal: 32,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 40,
+  },
+  alreadyText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  loginBtn: {
+    borderRadius: 8,
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loginText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.8,
   },
 });

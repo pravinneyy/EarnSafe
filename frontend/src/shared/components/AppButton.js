@@ -6,42 +6,65 @@ import {
   Text,
 } from 'react-native';
 
-import { colors, radii, spacing } from '../theme';
+import { radii, shadows, spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function AppButton({
   label,
   onPress,
   loading = false,
   variant = 'primary',
+  size = 'lg',
   style,
   disabled = false,
+  icon,
 }) {
+  const { colors } = useTheme();
   const isSecondary = variant === 'secondary';
+  const isAccent = variant === 'accent';
+  const isDanger = variant === 'danger';
   const isDisabled = disabled || loading;
+
+  const bgStyle = isSecondary
+    ? { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border, shadowOpacity: 0 }
+    : isAccent
+    ? { backgroundColor: colors.accent }
+    : isDanger
+    ? { backgroundColor: colors.danger }
+    : { backgroundColor: colors.primary };
+
+  const labelColor = isSecondary ? colors.textSecondary : '#FFFFFF';
 
   return (
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
+      accessibilityRole="button"
       style={({ pressed }) => [
         styles.base,
-        isSecondary ? styles.secondary : styles.primary,
+        size === 'sm' && styles.baseSm,
+        bgStyle,
+        isAccent && shadows.glow,
         isDisabled && styles.disabled,
         pressed && !isDisabled && styles.pressed,
         style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isSecondary ? colors.primary : colors.surface} />
+        <ActivityIndicator color={isSecondary ? colors.primary : '#FFFFFF'} />
       ) : (
-        <Text
-          style={[
-            styles.label,
-            isSecondary ? styles.secondaryLabel : styles.primaryLabel,
-          ]}
-        >
-          {label}
-        </Text>
+        <>
+          {icon && <Text style={[styles.icon, { color: labelColor }]}>{icon}</Text>}
+          <Text
+            style={[
+              styles.label,
+              size === 'sm' && styles.labelSm,
+              { color: labelColor },
+            ]}
+          >
+            {label}
+          </Text>
+        </>
       )}
     </Pressable>
   );
@@ -49,34 +72,35 @@ export default function AppButton({
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 52,
+    minHeight: 58,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
     paddingHorizontal: spacing.lg,
+    ...shadows.sm,
   },
-  primary: {
-    backgroundColor: colors.primary,
-  },
-  secondary: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  baseSm: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.sm,
   },
   disabled: {
-    opacity: 0.7,
+    opacity: 0.5,
   },
   pressed: {
-    transform: [{ translateY: 1 }],
+    transform: [{ scale: 0.97 }],
+    opacity: 0.9,
   },
   label: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
   },
-  primaryLabel: {
-    color: colors.surface,
+  labelSm: {
+    fontSize: 14,
   },
-  secondaryLabel: {
-    color: colors.text,
+  icon: {
+    fontSize: 18,
+    marginRight: spacing.sm,
   },
 });

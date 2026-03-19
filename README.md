@@ -64,7 +64,7 @@ These two scenarios define the core value of the platform:
 
 ## End-to-End Workflow
 
-1. A delivery worker registers in the mobile app with city, delivery zone, platform, weekly income, and work profile.
+1. A delivery worker registers in the mobile app with a username, password, city, delivery zone, platform, weekly income, and work profile.
 2. The backend creates a risk profile using worker details, zone-level disruption exposure, and AI scoring.
 3. The worker is shown weekly plan options and an appropriate premium.
 4. Once the policy is active, the backend monitors configured external triggers for the worker's zone.
@@ -214,13 +214,12 @@ Database + external data feeds
 - Backend: FastAPI
 - Validation: Pydantic
 - Server: Uvicorn
-- Storage: in-memory mock database
+- Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
 
 ### Planned additions for later phases
 
-- Database: supabase
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
-- Data store: PostgreSQL or Supabase
+- Data store: deeper PostgreSQL and Supabase coverage for policies, claims, and analytics
 - Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
 - Payments: Razorpay sandbox or mock UPI simulation
 - Dashboard: simple web admin and analytics panel
