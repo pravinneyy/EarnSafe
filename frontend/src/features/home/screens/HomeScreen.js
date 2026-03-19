@@ -280,25 +280,22 @@ export default function HomeScreen({ route }) {
   const overlayMuted = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.5)';
 
   return (
-    <View style={[styles.root, { backgroundColor: c.background }]}>
-      {/* ── FULL-SCREEN MAP ──────────────── */}
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        initialRegion={region}
-        showsUserLocation={true}
-        showsMyLocationButton={false}
-        followsUserLocation={true}
-        customMapStyle={isDark ? darkMapStyle : lightMapStyle}
-      >
-        {location && (
-          <Marker coordinate={location} title="You" description={user?.delivery_zone || ''} />
-        )}
-      </MapView>
+    <Screen
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          tintColor={colors.primary}
+        />
+      }
+    >
+      <SectionHeading
+        title={`Welcome back, ${user?.name ? user.name.split(' ')[0] : 'Guest'}!`}
+        subtitle="Your coverage is active. Review your plan, monitor covered events, and check automatically triggered claims."
+      />
 
-      {/* ── TOP OVERLAY: Greeting ─────────── */}
-      <View style={styles.overlayTop}>
-        <View style={[styles.greetingBar, { backgroundColor: overlayBg }]}>
+      <AppCard style={styles.coverageCard}>
+        <View style={styles.coverageHeader}>
           <View>
             <Text style={[styles.greetingSmall, { color: overlayMuted }]}>{greeting}</Text>
             <Text style={[styles.greetingName, { color: overlayText }]}>{firstName}</Text>
