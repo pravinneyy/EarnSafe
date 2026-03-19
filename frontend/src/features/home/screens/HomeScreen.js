@@ -62,7 +62,7 @@ export default function HomeScreen({ route, navigation }) {
       }
     >
       <SectionHeading
-        title={`Welcome back, ${user.name.split(' ')[0]}`}
+        title={`Welcome back, ${user?.name ? user.name.split(' ')[0] : 'Guest'}!`}
         subtitle="Your coverage is active. Review your plan, monitor covered events, and check automatically triggered claims."
       />
 

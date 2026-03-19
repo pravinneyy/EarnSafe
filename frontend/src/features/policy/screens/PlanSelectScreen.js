@@ -27,11 +27,44 @@ export default function PlanSelectScreen({ route, navigation }) {
   async function handleCreatePolicy() {
     setLoading(true);
     try {
+      // 1. GET THE AI PREMIUM FIRST
+      const aiResponse = await fetch('http://192.168.0.101:8000/api/v1/calculate-premium', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zone: user.delivery_zone || "Anna Nagar", // <-- Bulletproof fallback
+          delivery_persona: user.platform || "Food", // <-- Bulletproof fallback
+          tier: selectedTier || "standard"
+        })
+      });
+
+      if (!aiResponse.ok) {
+        throw new Error('AI Server failed. Check the terminal.');
+      }
+
+      const aiData = await aiResponse.json();
+
+      // 2. CREATE THE POLICY (Mock Database)
       const policy = await createPolicy({
         user_id: user.id,
         plan_tier: selectedTier,
       });
-      navigation.navigate('Home', { user, policy });
+
+      // 3. NAVIGATE TO HOME WITH LIVE AI DATA
+      navigation.navigate('Home', { 
+        user: { 
+          ...user, 
+          name: user.name || 'Lax', 
+          risk_score: aiData.ai_risk_score * 100 
+        }, 
+        policy: {
+          ...policy,
+          plan_name: selectedPlan.label,
+          weekly_premium: aiData.weekly_premium_inr,
+          disruption: aiData.active_disruption
+        } 
+      });
+      
     } catch (error) {
       Alert.alert('Plan creation failed', error.message);
     } finally {
