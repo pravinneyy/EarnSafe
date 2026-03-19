@@ -187,7 +187,7 @@ Start with rule-based controls:
 
 Add an ML-assisted fraud score using claim behavior and event consistency features. CatBoost can also be used here because the fraud problem is again tabular, categorical, and probability-based.
 
-## How Frontend, Backend, and AI Work Together
+## Architecture
 
 ```text
 Mobile App
@@ -204,6 +204,28 @@ FastAPI Backend
     v
 Database + external data feeds
 ```
+## 🧠 How Our AI Actually Works
+
+We didn’t want to just plug into a generic math formula. The reality of gig work is chaotic, so we built a dual-model Python backend that actually understands context—like bad weather, high-risk zones, and local disruptions—in real time. 
+
+Here is what is happening under the hood:
+
+### 1. The Dynamic Pricing Engine (CatBoost)
+Insurance shouldn't cost the same on a sunny Tuesday as it does during a monsoon. To fix this, we built our live pricing model using **CatBoost**.
+
+* **Why we chose it:** Delivery zones and platform names are text-heavy. CatBoost is notoriously good at handling messy, categorical data right out of the box without breaking our pipeline.
+* **How it thinks:** When a rider opens the app, the AI instantly looks at their specific zone, their gig platform, and the live weather forecast. It even factors in active local chaos (like severe waterlogging or strikes).
+* **The Result:** Instead of charging a flat rate, the model generates a real-time risk multiplier. This scales smoothly with the user's chosen coverage tier to give them a perfectly tailored, fair weekly premium.
+
+### 2. The Trust Engine: Fraud Detection (Isolation Forest)
+If we are going to offer instant claim payouts, we have to protect the system from bad actors automatically. 
+
+* **Why Isolation Forest?** Actual insurance fraud is rare compared to honest claims. Instead of trying to define what a "normal" claim is, Isolation Forest is specifically designed to hunt for weird, isolated anomalies.
+* **The Sanity Check:** When a claim is filed, the AI cross-references it with reality. If a user claims they couldn't work due to a massive flood, but our location data and weather APIs say it was completely dry in that exact zone, the model flags the mismatch.
+* **The Output:** Honest claims slide right through the decision tree for instant payout, while the highly unusual anomalies are caught and flagged for manual review.
+
+### 3. The "Bouncer" (Data Pipeline & FastAPI)
+You can never trust user input to be perfectly typed. We built a high-speed **FastAPI** backend that acts as our data bouncer. Before any information even touches the machine learning models, our pipeline intercepts it, strips out accidental spaces, and fixes capitalization (so a messy `"  anna nagar "` instantly becomes a clean `"Anna Nagar"`). This keeps the AI fast, accurate, and crash-free.
 
 ## Tech Stack
 
@@ -251,3 +273,147 @@ What will be added to fully match the use case:
 EarnSafe is an AI-powered, mobile-first, parametric insurance platform for food delivery workers. It protects weekly income loss caused by verified external disruptions, uses weekly premiums instead of traditional long-cycle pricing, and combines backend automation with CatBoost-based risk intelligence to create faster, fairer protection for gig workers.
 
 This README is intended to serve as the Phase 1 strategy document: it explains the problem, the chosen persona, the workflow, the weekly pricing model, the parametric triggers, the AI and fraud plan, the tech stack, and the phased execution plan.
+
+---
+
+## How to Run
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+
+- Expo CLI (`npm install -g expo-cli`)
+- Android emulator or a physical device with the Expo Go app
+
+### 1. Install Backend Dependencies
+
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+This installs FastAPI, Uvicorn, CatBoost, scikit-learn, pandas, numpy, and all other required packages. The AI/ML models (CatBoost risk engine + IsolationForest fraud detector) load automatically on server startup.
+
+### 2. Set Up Environment Variables
+
+Create a `.env` file in the project root with:
+
+```
+OPENWEATHER_API_KEY=<your_openweather_api_key>
+SUPABASE_URL=<your_supabase_project_url>
+SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
+```
+
+### 3. Start the Backend
+
+```bash
+cd backend
+python run.py
+```
+
+The server starts at **http://localhost:8000** with hot-reload enabled. You will see `⚡ Booting EarnSafe AI Models...` in the console confirming the ML models are loaded.
+
+### 4. Start the Frontend
+
+```bash
+cd frontend
+npm install
+npx expo start
+```
+
+- Press `a` to launch on an Android emulator
+- Press `i` to launch on an iOS simulator
+- Or scan the QR code with the Expo Go app on your phone
+
+> **Note:** Make sure your phone and computer are on the same Wi-Fi network. The app auto-detects the backend URL from the Expo bundler host.
+
+### 5. (Optional) Run the Standalone AI Demo Server
+
+```bash
+cd ai/ml
+uvicorn fastapiwrapper:app --reload --port 8001
+```
+
+This runs the AI models as an independent server on port 8001 for testing or demo purposes.
+
+### 6. Test the AI Endpoint
+
+```bash
+curl "http://localhost:8000/policy/ai-premium?zone=Velachery&persona=Food&tier=standard"
+```
+
+Or run the test script:
+
+```bash
+cd ai/ml
+python test.py
+```
+
+---
+
+## API Endpoints
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/`      | Health check — returns `{"status": "ok"}` |
+
+### Users
+
+| Method | Endpoint            | Description                  |
+|--------|---------------------|------------------------------|
+| `POST` | `/users/register`   | Register a new delivery worker |
+| `POST` | `/users/login`      | Login with username and password |
+| `GET`  | `/users/{user_id}`  | Get user profile by ID       |
+
+### Policy
+
+| Method | Endpoint                                          | Description                                      |
+|--------|---------------------------------------------------|--------------------------------------------------|
+| `GET`  | `/policy/ai-premium?zone=X&persona=Y&tier=Z`     | **AI-powered** real-time premium quote (CatBoost) |
+| `POST` | `/policy/create`                                  | Create and activate a policy                      |
+| `GET`  | `/policy/{policy_id}`                             | Get policy details                                |
+| `GET`  | `/policy/user/{user_id}`                          | Get all policies for a user                       |
+
+### Claims
+
+| Method | Endpoint               | Description                                         |
+|--------|------------------------|-----------------------------------------------------|
+| `POST` | `/claims/submit`       | Submit a claim (uses **IsolationForest** fraud detection) |
+| `GET`  | `/claims/user/{user_id}` | Get all claims for a user                          |
+| `GET`  | `/claims/{claim_id}`   | Get claim details                                   |
+
+### Weather
+
+| Method | Endpoint                  | Description                        |
+|--------|---------------------------|------------------------------------|
+| `GET`  | `/weather/?lat=X&lon=Y`  | Live weather + AQI + disruption analysis |
+
+### Example: AI Premium Response
+
+```json
+{
+  "status": "success",
+  "ai_risk_score": 0.42,
+  "weekly_premium_inr": 69.58,
+  "zone": "Velachery",
+  "active_disruption": "None"
+}
+```
+
+### Example: Claim Fraud Detection Response
+
+```json
+{
+  "id": 1,
+  "user_id": 1,
+  "policy_id": 1,
+  "disruption_type": "heavy_rainfall",
+  "hours_lost": 6.0,
+  "claim_amount": 400,
+  "fraud_score": 0.0,
+  "status": "approved",
+  "reason": null
+}
+```

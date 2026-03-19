@@ -20,7 +20,11 @@ export async function request(path, options = {}) {
       : null;
 
     if (!response.ok) {
-      throw new Error(payload?.detail || `Request failed with status ${response.status}`);
+      let errMsg = `Request failed with status ${response.status}`;
+      if (payload?.detail) {
+        errMsg = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail);
+      }
+      throw new Error(errMsg);
     }
 
     return payload;

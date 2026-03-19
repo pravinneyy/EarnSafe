@@ -5,15 +5,19 @@ Simulates a Random Forest classifier output (fraud_score 0.0–1.0).
 Real implementation will use scikit-learn RandomForestClassifier
 trained on synthetic claims data.
 
+Now enhanced with IsolationForest ML anomaly detection from ai_service.
+
 Scoring logic mirrors what the ML model would learn:
   - GPS mismatch with disruption zone        → high signal
   - Claim amount exceeds plan daily coverage → hard reject
   - Hours lost implausibly high              → high signal
   - Repeated claims for same disruption type → medium signal
   - Claim amount suspiciously close to max   → medium signal
+  - IsolationForest anomaly detection        → ML signal
 """
 
 from app.database import claims_db
+from app.services.ai_service import detect_claim_anomaly
 
 
 # Thresholds
@@ -80,6 +84,17 @@ def detect_fraud(
         signals.append(f"repeated claims for {disruption_type} ({prior} prior)")
     elif prior >= 1:
         score += 0.10
+
+    # 5. ML-based anomaly detection (IsolationForest)
+    #    Uses mock feature values for hours_worked and location_match
+    ml_result = detect_claim_anomaly(
+        reported_rain_mm=0.0,  # placeholder — real impl would use weather API
+        hours_worked_before_claim=hours_lost,
+        location_match_score=0.80 if score < 0.30 else 0.30,
+    )
+    if ml_result["is_anomaly"]:
+        score += 0.30
+        signals.append("ML anomaly detection flagged this claim")
 
     # Cap at 1.0
     score = min(round(score, 2), 1.0)

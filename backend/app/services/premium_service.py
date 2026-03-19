@@ -3,9 +3,12 @@ Premium calculation service.
 
 Formula: base_premium × zone_risk_factor × season_factor × platform_factor
 Each plan tier has a fixed base. Factors adjust it based on worker profile.
+Now enhanced with CatBoost AI risk scoring from ai_service.
 """
 
 from datetime import datetime
+
+from app.services.ai_service import predict_risk
 
 # Plan base premiums (₹/week)
 PLAN_CONFIG = {
@@ -46,7 +49,8 @@ def _platform_factor(platform: str) -> float:
 
 def calculate_weekly_premium(plan_tier: str, city: str, platform: str) -> dict:
     """
-    Returns full premium breakdown for a given plan + worker profile.
+    Returns full premium breakdown for a given plan + worker profile,
+    now augmented with AI risk data from the CatBoost model.
     """
     config = PLAN_CONFIG[plan_tier]
 
@@ -57,10 +61,16 @@ def calculate_weekly_premium(plan_tier: str, city: str, platform: str) -> dict:
     raw_premium = config["premium"] * zf * sf * pf
     final_premium = round(raw_premium)   # round to nearest ₹
 
+    # Get AI risk assessment
+    ai_data = predict_risk(zone=city, delivery_persona=platform, tier=plan_tier)
+
     return {
         "weekly_premium":    final_premium,
         "daily_coverage":    config["daily_coverage"],
         "max_weekly_payout": config["max_weekly"],
+        "ai_risk_score":     ai_data["ai_risk_score"],
+        "ai_premium":        ai_data["weekly_premium_inr"],
+        "active_disruption": ai_data["active_disruption"],
         "breakdown": {
             "base_premium":      config["premium"],
             "zone_risk_factor":  zf,

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.database import policies_db
 from app.schemas import PolicyCreate, PolicyResponse
 from app.services.premium_service import calculate_weekly_premium
+from app.services.ai_service import predict_risk
 from app.services.user_store import SupabaseConfigError, SupabaseRequestError, fetch_user_by_id
 
 router = APIRouter(prefix="/policy", tags=["Policy"])
@@ -11,6 +12,19 @@ router = APIRouter(prefix="/policy", tags=["Policy"])
 def _raise_store_error(error: Exception) -> None:
     status_code = 500 if isinstance(error, SupabaseConfigError) else 502
     raise HTTPException(status_code=status_code, detail=str(error)) from error
+
+
+@router.get("/ai-premium", tags=["AI"])
+def get_ai_premium(
+    zone: str = Query(..., description="Delivery zone, e.g. Velachery"),
+    persona: str = Query(..., description="Delivery type, e.g. Food"),
+    tier: str = Query("standard", description="Plan tier: basic, standard, or pro"),
+):
+    """
+    Real-time AI-powered premium quote using the CatBoost risk model.
+    """
+    result = predict_risk(zone=zone, delivery_persona=persona, tier=tier)
+    return {"status": "success", **result}
 
 
 @router.post("/create", response_model=PolicyResponse, status_code=201)
@@ -46,6 +60,11 @@ def create_policy(policy: PolicyCreate):
     return policy_data
 
 
+@router.get("/user/{user_id}", response_model=list[PolicyResponse])
+def get_user_policies(user_id: int):
+    return [p for p in policies_db if p["user_id"] == user_id]
+
+
 @router.get("/{policy_id}", response_model=PolicyResponse)
 def get_policy(policy_id: int):
     policy = next((p for p in policies_db if p["id"] == policy_id), None)
@@ -53,7 +72,3 @@ def get_policy(policy_id: int):
         raise HTTPException(status_code=404, detail="Policy not found")
     return policy
 
-
-@router.get("/user/{user_id}", response_model=list[PolicyResponse])
-def get_user_policies(user_id: int):
-    return [p for p in policies_db if p["user_id"] == user_id]

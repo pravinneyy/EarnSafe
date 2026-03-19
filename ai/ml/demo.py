@@ -10,7 +10,7 @@ from sklearn.ensemble import IsolationForest
 # ==========================================
 def get_7_day_forecast_and_chaos():
     # Put your real WeatherAPI.com key here
-    api_key = "5bf081e0f8b845a7aea174955261803" 
+    api_key = "OPENWEATHER_API_KEY" 
     city = "Chennai"
     days = 7
     url = f"http://api.weatherapi.com/v1/forecast.json?key={api_key}&q={city}&days={days}"

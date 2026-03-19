@@ -1,6 +1,10 @@
 fastapi==0.111.0
 uvicorn==0.30.1
-pydantic==2.7.1
+pydantic>=2.11.7
 requests
 python-dotenv
 sqlalchemy
+catboost
+scikit-learn
+pandas
+numpy

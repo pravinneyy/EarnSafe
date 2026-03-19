@@ -1,23 +1,38 @@
 import requests
 
-# The exact endpoint we built in FastAPI
-url = "http://127.0.0.1:8000/api/v1/calculate-premium"
+# Test the AI premium endpoint on the main backend
+url = "http://127.0.0.1:8000/policy/ai-premium"
 
-# The data your React Native app will send
-payload = {
+params = {
     "zone": "Velachery",
-    "delivery_persona": "Food"
+    "persona": "Food",
+    "tier": "standard"
 }
 
 print(f"Sending request to AI Engine at {url}...")
 
 try:
-    # Ping the API
-    response = requests.post(url, json=payload)
-    
-    # Print the exact JSON your frontend will receive
-    print("\n✅ SUCCESS! Here is the data for your frontend:")
+    response = requests.get(url, params=params)
+
+    print("\n✅ SUCCESS! Here is the AI premium data:")
     print(response.json())
-    
+
 except Exception as e:
     print(f"\n❌ ERROR: Could not connect. {e}")
+
+
+# Also test the standalone FastAPI wrapper (if running on port 8001)
+print("\n--- Testing standalone AI wrapper (port 8001) ---")
+standalone_url = "http://127.0.0.1:8001/api/v1/calculate-premium"
+payload = {
+    "zone": "Velachery",
+    "delivery_persona": "Food",
+    "tier": "standard"
+}
+
+try:
+    response = requests.post(standalone_url, json=payload)
+    print("✅ Standalone API response:")
+    print(response.json())
+except Exception as e:
+    print(f"⚠️ Standalone server not running (this is OK if using the main backend): {e}")

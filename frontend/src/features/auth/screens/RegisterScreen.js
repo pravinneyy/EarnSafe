@@ -27,14 +27,30 @@ export default function RegisterScreen({ navigation }) {
     name: '',
     username: '',
     password: '',
+    phone: '',
     platform: '',
-    city: 'Mumbai',
+    city: 'Chennai',
+    delivery_zone: '',
+    weekly_income: '',
   });
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleRegister() {
     if (!formData.name || !formData.username || !formData.password || !formData.platform) {
       Alert.alert('Missing fields', 'Please fill in all required details');
+      return;
+    }
+    if (!formData.phone || formData.phone.length !== 10) {
+      Alert.alert('Invalid phone', 'Please enter a valid 10-digit phone number');
+      return;
+    }
+    if (!formData.delivery_zone) {
+      Alert.alert('Missing zone', 'Please enter your delivery zone');
+      return;
+    }
+    if (!termsAccepted) {
+      Alert.alert('Terms Required', 'Please accept the terms of service to continue.');
       return;
     }
 
@@ -44,6 +60,7 @@ export default function RegisterScreen({ navigation }) {
         ...formData,
         username: formData.username.trim().toLowerCase(),
         platform: formData.platform.toLowerCase(),
+        weekly_income: parseFloat(formData.weekly_income) || 4000,
       });
       navigation.reset({
         index: 0,
@@ -80,22 +97,21 @@ export default function RegisterScreen({ navigation }) {
                 <Text style={styles.label}>Full name</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Adam Smith"
+                  placeholder="Ravi Kumar"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   value={formData.name}
                   onChangeText={val => setFormData({ ...formData, name: val })}
                 />
               </View>
 
-              {/* Email/Phone */}
+              {/* Username */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email / Phone</Text>
+                <Text style={styles.label}>Username</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="adam_smith@email.com"
+                  placeholder="ravi_kumar"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   autoCapitalize="none"
-                  keyboardType="email-address"
                   value={formData.username}
                   onChangeText={val => setFormData({ ...formData, username: val })}
                 />
@@ -106,11 +122,50 @@ export default function RegisterScreen({ navigation }) {
                 <Text style={styles.label}>Password</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="********"
+                  placeholder="Min 8 characters"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   secureTextEntry
                   value={formData.password}
                   onChangeText={val => setFormData({ ...formData, password: val })}
+                />
+              </View>
+
+              {/* Phone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Phone number</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="9876543210"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  value={formData.phone}
+                  onChangeText={val => setFormData({ ...formData, phone: val.replace(/[^0-9]/g, '') })}
+                />
+              </View>
+
+              {/* Delivery Zone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Delivery zone</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Velachery, OMR, Anna Nagar..."
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={formData.delivery_zone}
+                  onChangeText={val => setFormData({ ...formData, delivery_zone: val })}
+                />
+              </View>
+
+              {/* Weekly Income */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Weekly income (₹)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="4000"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  keyboardType="numeric"
+                  value={formData.weekly_income}
+                  onChangeText={val => setFormData({ ...formData, weekly_income: val.replace(/[^0-9.]/g, '') })}
                 />
               </View>
 
@@ -145,13 +200,29 @@ export default function RegisterScreen({ navigation }) {
 
               {/* Terms checkbox */}
               <View style={styles.termsRow}>
-                <View style={styles.checkbox} />
-                <View style={styles.termsTextColumn}>
+                <Pressable
+                  style={[
+                    styles.checkbox,
+                    termsAccepted && { borderColor: colors.accent, backgroundColor: 'rgba(16,185,129,0.15)' },
+                  ]}
+                  onPress={() => setTermsAccepted(!termsAccepted)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  {termsAccepted && (
+                    <Text style={{ color: colors.accent, fontWeight: 'bold', textAlign: 'center', lineHeight: 16 }}>
+                      ✓
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={styles.termsTextColumn}
+                  onPress={() => setTermsAccepted(!termsAccepted)}
+                >
                   <Text style={styles.termsTitle}>Terms of Service</Text>
                   <Text style={styles.termsBody}>
                     I accept the <Text style={[styles.termsLink, { color: colors.accent }]}>terms and conditions</Text> as well as the privacy policy
                   </Text>
-                </View>
+                </Pressable>
               </View>
 
               {/* Register Button */}
@@ -202,7 +273,7 @@ const styles = StyleSheet.create({
   curveWrapper: {
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
-    height: height * 0.78,
+    height: height * 0.85,
   },
   curveBg: {
     position: 'absolute',
@@ -225,7 +296,7 @@ const styles = StyleSheet.create({
   },
   topSection: {
     paddingHorizontal: 32,
-    paddingTop: 50,
+    paddingTop: 40,
   },
   subtitle: {
     fontSize: 12,
@@ -237,20 +308,20 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 26,
     fontWeight: '800',
-    marginBottom: 28,
+    marginBottom: 24,
   },
   inputGroup: {
-    marginBottom: 18,
+    marginBottom: 14,
   },
   label: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 8,
-    height: 52,
+    height: 48,
     paddingHorizontal: 16,
     color: '#FFFFFF',
     fontSize: 15,
@@ -283,16 +354,18 @@ const styles = StyleSheet.create({
   termsRow: {
     flexDirection: 'row',
     marginTop: 6,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   checkbox: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.35)',
     borderRadius: 4,
     marginRight: 12,
     marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   termsTextColumn: {
     flex: 1,
