@@ -3,7 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-USERNAME_PATTERN = r"^[A-Za-z0-9_]{3,30}$"
+
+USERNAME_PATTERN = r"^[A-Za-z0-9_\.@\+\-]{3,50}$"
 PHONE_PATTERN = r"^\d{10}$"
 
 

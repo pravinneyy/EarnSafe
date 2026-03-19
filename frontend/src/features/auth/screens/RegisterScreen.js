@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,39 +19,75 @@ import { registerUser } from '../../../services/api';
 
 const { width, height } = Dimensions.get('window');
 
-const PLATFORMS = ['Zomato', 'Swiggy'];
+
+const PLATFORMS = ['Zomato', 'Swiggy', 'Blinkit', 'Zepto'];
 
 export default function RegisterScreen({ navigation }) {
   const { colors } = useTheme();
 
+  
   const [formData, setFormData] = useState({
     name: '',
-    username: '',
-    password: '',
-    platform: '',
-    city: 'Mumbai',
+    username: '',      // Pattern: r"^[A-Za-z0-9_]{3,30}$" (unless you updated schemas.py)
+    phone: '',         // Pattern: exactly 10 digits
+    password: '',      // Min length: 8
+    platform: '',      // Enum: zomato, swiggy, etc.
+    city: 'Pune',      
+    delivery_zone: '', 
+    weekly_income: '', // Must be a number > 0
   });
+  
   const [loading, setLoading] = useState(false);
 
   async function handleRegister() {
-    if (!formData.name || !formData.username || !formData.password || !formData.platform) {
-      Alert.alert('Missing fields', 'Please fill in all required details');
+    // 1. Client-side validation (matching your backend rules)
+    if (!formData.name || !formData.username || !formData.phone || !formData.password || !formData.platform || !formData.delivery_zone || !formData.weekly_income) {
+      Alert.alert('Missing fields', 'Please fill in every field to register.');
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      Alert.alert('Short Password', 'Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (formData.phone.length !== 10) {
+      Alert.alert('Invalid Phone', 'Phone number must be exactly 10 digits.');
       return;
     }
 
     setLoading(true);
     try {
-      const user = await registerUser({
-        ...formData,
+      // 2. Prepare Payload (USE parseInt for the income)
+      const payload = {
+        name: formData.name.trim(),
         username: formData.username.trim().toLowerCase(),
+        password: formData.password,
+        phone: formData.phone.trim(),
+        city: formData.city.trim(),
+        delivery_zone: formData.delivery_zone.trim(),
         platform: formData.platform.toLowerCase(),
-      });
+        
+        // Use Math.floor to ENSURE there is no decimal sent
+        weekly_income: Math.floor(Number(formData.weekly_income)), 
+      };
+
+      console.log("Attempting register with:", payload);
+
+      const user = await registerUser(payload);
+      
+      // Navigate to Plan Selection upon success
       navigation.reset({
         index: 0,
         routes: [{ name: 'PlanSelect', params: { user } }],
       });
+
     } catch (error) {
-      Alert.alert('Registration failed', error.message);
+      // 3. FIXED ERROR HANDLING for your specific http.js
+      console.log("Registration Error:", error.message);
+      
+      // If the backend returns a list of errors (422), they show up here as a string
+      Alert.alert('Registration Failed', error.message);
     } finally {
       setLoading(false);
     }
@@ -58,7 +95,6 @@ export default function RegisterScreen({ navigation }) {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Curved Navy Background */}
       <View style={styles.curveWrapper}>
         <View style={[styles.curveBg, { backgroundColor: colors.navy800 }]} />
       </View>
@@ -70,7 +106,6 @@ export default function RegisterScreen({ navigation }) {
         >
           <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
 
-            {/* ────── TOP NAVY SECTION ────── */}
             <View style={styles.topSection}>
               <Text style={[styles.subtitle, { color: colors.accent }]}>REGISTRATION</Text>
               <Text style={styles.title}>Create an account</Text>
@@ -80,30 +115,68 @@ export default function RegisterScreen({ navigation }) {
                 <Text style={styles.label}>Full name</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Adam Smith"
+                  placeholder="Ravi Kumar"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   value={formData.name}
                   onChangeText={val => setFormData({ ...formData, name: val })}
                 />
               </View>
 
-              {/* Email/Phone */}
+              {/* Username */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email / Phone</Text>
+                <Text style={styles.label}>Username (No spaces or symbols)</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="adam_smith@email.com"
+                  placeholder="ravi_kumar"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   autoCapitalize="none"
-                  keyboardType="email-address"
                   value={formData.username}
                   onChangeText={val => setFormData({ ...formData, username: val })}
                 />
               </View>
 
+              {/* Mobile Number */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Mobile Number (10 digits)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="9876543210"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  value={formData.phone}
+                  onChangeText={val => setFormData({ ...formData, phone: val })}
+                />
+              </View>
+
+              {/* Delivery Zone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Delivery Zone</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Koregaon Park"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={formData.delivery_zone}
+                  onChangeText={val => setFormData({ ...formData, delivery_zone: val })}
+                />
+              </View>
+
+              {/* Weekly Income */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Expected Weekly Income (₹)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="4000"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  keyboardType="numeric"
+                  value={formData.weekly_income}
+                  onChangeText={val => setFormData({ ...formData, weekly_income: val })}
+                />
+              </View>
+
               {/* Password */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Password</Text>
+                <Text style={styles.label}>Password (Min 8 characters)</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="********"
@@ -114,9 +187,9 @@ export default function RegisterScreen({ navigation }) {
                 />
               </View>
 
-              {/* Delivery Platform — Button Selector */}
+              {/* Platform Selector */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Delivery Platform</Text>
+                <Text style={styles.label}>Platform</Text>
                 <View style={styles.platformRow}>
                   {PLATFORMS.map((p) => {
                     const isSelected = formData.platform === p;
@@ -129,28 +202,12 @@ export default function RegisterScreen({ navigation }) {
                         ]}
                         onPress={() => setFormData({ ...formData, platform: p })}
                       >
-                        <Text
-                          style={[
-                            styles.platformBtnText,
-                            isSelected && styles.platformBtnTextSelected,
-                          ]}
-                        >
+                        <Text style={[styles.platformBtnText, isSelected && styles.platformBtnTextSelected]}>
                           {p}
                         </Text>
                       </Pressable>
                     );
                   })}
-                </View>
-              </View>
-
-              {/* Terms checkbox */}
-              <View style={styles.termsRow}>
-                <View style={styles.checkbox} />
-                <View style={styles.termsTextColumn}>
-                  <Text style={styles.termsTitle}>Terms of Service</Text>
-                  <Text style={styles.termsBody}>
-                    I accept the <Text style={[styles.termsLink, { color: colors.accent }]}>terms and conditions</Text> as well as the privacy policy
-                  </Text>
                 </View>
               </View>
 
@@ -164,24 +221,20 @@ export default function RegisterScreen({ navigation }) {
                 onPress={handleRegister}
                 disabled={loading}
               >
-                <Text style={styles.registerText}>
-                  {loading ? 'Registering...' : 'Register'}
-                </Text>
+                {loading ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.registerText}>Register</Text>
+                )}
               </Pressable>
             </View>
 
-            {/* ────── BOTTOM SECTION ────── */}
             <View style={styles.bottomSection}>
               <Text style={[styles.alreadyText, { color: colors.textMuted }]}>
                 Already have an account?
               </Text>
-
               <Pressable
-                style={({ pressed }) => [
-                  styles.loginBtn,
-                  { backgroundColor: colors.navy700 },
-                  pressed && styles.pressed,
-                ]}
+                style={[styles.loginBtn, { backgroundColor: colors.navy700 }]}
                 onPress={() => navigation.navigate('ExistingUser')}
               >
                 <Text style={styles.loginText}>Login</Text>
@@ -196,158 +249,27 @@ export default function RegisterScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  curveWrapper: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    height: height * 0.78,
-  },
-  curveBg: {
-    position: 'absolute',
-    top: -height * 0.8,
-    left: -width * 0.5,
-    width: width * 2,
-    height: height * 1.5,
-    borderRadius: width,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'space-between',
-    paddingBottom: 30,
-  },
-  topSection: {
-    paddingHorizontal: 32,
-    paddingTop: 50,
-  },
-  subtitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '800',
-    marginBottom: 28,
-  },
-  inputGroup: {
-    marginBottom: 18,
-  },
-  label: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 8,
-    height: 52,
-    paddingHorizontal: 16,
-    color: '#FFFFFF',
-    fontSize: 15,
-  },
-
-  // Platform button selector
-  platformRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  platformBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  platformBtnText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  platformBtnTextSelected: {
-    color: '#FFFFFF',
-  },
-
-  // Terms
-  termsRow: {
-    flexDirection: 'row',
-    marginTop: 6,
-    marginBottom: 24,
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
-    borderRadius: 4,
-    marginRight: 12,
-    marginTop: 2,
-  },
-  termsTextColumn: {
-    flex: 1,
-  },
-  termsTitle: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  termsBody: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  termsLink: {
-    fontWeight: '600',
-  },
-
-  // Buttons
-  registerBtn: {
-    borderRadius: 8,
-    height: 54,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  // Bottom section
-  bottomSection: {
-    paddingHorizontal: 32,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 40,
-  },
-  alreadyText: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  loginBtn: {
-    borderRadius: 8,
-    height: 54,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loginText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  pressed: {
-    opacity: 0.8,
-  },
+  root: { flex: 1 },
+  curveWrapper: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', height: height * 0.78 },
+  curveBg: { position: 'absolute', top: -height * 0.8, left: -width * 0.5, width: width * 2, height: height * 1.5, borderRadius: width },
+  safeArea: { flex: 1 },
+  keyboardView: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'space-between', paddingBottom: 30 },
+  topSection: { paddingHorizontal: 32, paddingTop: 50 },
+  subtitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 6 },
+  title: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', marginBottom: 28 },
+  inputGroup: { marginBottom: 18 },
+  label: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 12, marginBottom: 8 },
+  input: { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 8, height: 52, paddingHorizontal: 16, color: '#FFFFFF', fontSize: 15 },
+  platformRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  platformBtn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.25)', backgroundColor: 'rgba(255,255,255,0.08)' },
+  platformBtnText: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600' },
+  platformBtnTextSelected: { color: '#FFFFFF' },
+  registerBtn: { borderRadius: 8, height: 54, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+  registerText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  bottomSection: { paddingHorizontal: 32, paddingTop: 20 },
+  alreadyText: { fontSize: 14, textAlign: 'center', marginBottom: 16 },
+  loginBtn: { borderRadius: 8, height: 54, justifyContent: 'center', alignItems: 'center' },
+  loginText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  pressed: { opacity: 0.8 },
 });

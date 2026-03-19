@@ -10,7 +10,9 @@ import {
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// Local Imports
 import { getLiveWeather, getAirQuality } from '../../../services/api/weatherApi';
 import { AppPill } from '../../../shared/components';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
@@ -46,7 +48,6 @@ function getSimpleWeather(condition) {
   if (c.includes('snow') || c.includes('sleet')) return 'Snowy';
   if (c.includes('fog') || c.includes('mist') || c.includes('haze')) return 'Foggy';
   if (c.includes('wind')) return 'Windy';
-  // Capitalize first letter of first word as fallback
   return condition.charAt(0).toUpperCase() + condition.slice(1).split(' ')[0];
 }
 
@@ -156,18 +157,18 @@ const lightMapStyle = [
 // ───────────────────────────────────────────────
 export default function HomeScreen({ route }) {
   const { user, policy } = route.params || {};
+  const insets = useSafeAreaInsets();
+  const { isDark, colors: c } = useTheme();
+  
   const [weather, setWeather] = useState(null);
   const [airQuality, setAirQuality] = useState(null);
-  const mapRef = useRef(null);
-  const { isDark, colors: c } = useTheme();
-
-  // Location state
   const [permissionStatus, setPermissionStatus] = useState('loading');
   const [location, setLocation] = useState(null);
+  
+  const mapRef = useRef(null);
   const locationSub = useRef(null);
   const hasAnimated = useRef(false);
 
-  // ── Request permission & start watcher ──────
   async function requestLocationPermission() {
     setPermissionStatus('loading');
     try {
@@ -185,7 +186,6 @@ export default function HomeScreen({ route }) {
   }
 
   async function startLocationWatcher() {
-    // Get initial position once
     try {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -198,12 +198,11 @@ export default function HomeScreen({ route }) {
       }
     } catch (_) {}
 
-    // Watch for significant changes only (50m minimum, 30s interval)
     locationSub.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
-        timeInterval: 30000,    // 30 seconds
-        distanceInterval: 50,   // 50 meters
+        timeInterval: 30000,
+        distanceInterval: 50,
       },
       (pos) => {
         const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
@@ -224,7 +223,6 @@ export default function HomeScreen({ route }) {
     return () => { locationSub.current?.remove(); };
   }, []);
 
-  // ── Load weather + AQI ──────────────────────
   useEffect(() => {
     if (!location) return;
 
@@ -240,11 +238,9 @@ export default function HomeScreen({ route }) {
         console.log('Error loading weather/AQI');
       }
     }
-
     fetchData();
   }, [location?.latitude, location?.longitude]);
 
-  // ── Permission gate ─────────────────────────
   if (permissionStatus === 'loading') {
     return (
       <View style={[gateStyles.container, { backgroundColor: c.background }]}>
@@ -260,13 +256,11 @@ export default function HomeScreen({ route }) {
     return <LocationGate onRetry={requestLocationPermission} />;
   }
 
-  // ── Derived data ─────────────────────────────
   const firstName = user?.name?.split(' ')[0] || 'Rider';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const aqiIndex = airQuality?.aqi || weather?.aqi || null;
-  const aqiDisplay = aqiIndex ? `${aqiIndex}` : '—';
   const aqiColor = aqiIndex ? (AQI_COLORS[aqiIndex] || '#64748B') : '#64748B';
   const weatherCondition = getSimpleWeather(weather?.weather_condition);
   const weatherEmoji = getWeatherEmoji(weather?.weather_condition);
@@ -281,7 +275,6 @@ export default function HomeScreen({ route }) {
 
   return (
     <View style={[styles.root, { backgroundColor: c.background }]}>
-      {/* ── FULL-SCREEN MAP ──────────────── */}
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -296,7 +289,6 @@ export default function HomeScreen({ route }) {
         )}
       </MapView>
 
-      {/* ── TOP OVERLAY: Greeting ─────────── */}
       <View style={styles.overlayTop}>
         <View style={[styles.greetingBar, { backgroundColor: overlayBg }]}>
           <View>
@@ -310,40 +302,55 @@ export default function HomeScreen({ route }) {
         </View>
       </View>
 
-      {/* ── BOTTOM OVERLAY: Weather Strip ── */}
-      <View style={styles.overlayBottom}>
-        {/* Zone bar */}
+      <View style={[styles.overlayBottom, { bottom: spacing.xs }]}>
+        {weather?.parametric_analysis?.is_disrupted && (
+          <View style={styles.alertContainer}>
+            <View style={[
+              styles.alertBar, 
+              { 
+                backgroundColor: isDark ? 'rgba(153, 27, 27, 0.95)' : 'rgba(254, 242, 242, 0.98)',
+                borderColor: isDark ? '#EF4444' : '#FECACA' 
+              }
+            ]}>
+              <Text style={styles.alertEmoji}>⚠️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.alertTitle, { color: isDark ? '#FCA5A5' : '#B91C1C' }]}>
+                  Disruption Detected
+                </Text>
+                <Text style={[styles.alertReason, { color: isDark ? '#FFFFFF' : '#7F1D1D' }]}>
+                  {weather.parametric_analysis.disruption_reason}
+                </Text>
+              </View>
+              <AppPill label="Payout Active" tone="danger" />
+            </View>
+          </View>
+        )}
+
         <View style={[styles.zoneBar, { backgroundColor: overlayBg }]}>
           <Text style={{ fontSize: 14, marginRight: 6 }}>📍</Text>
           <Text style={[styles.zoneText, { color: overlayText }]}>
             {user?.delivery_zone || 'Locating…'}
           </Text>
           <Text style={[styles.zoneCondition, { color: aqiColor }]}>
-            AQI: {aqiDisplay}
+            AQI: {AQI_LABELS[aqiIndex] || 'Fair'}
           </Text>
         </View>
 
-        {/* Compact weather strip */}
         <View style={[styles.weatherStrip, { backgroundColor: overlayBg }]}>
-          {/* Temperature */}
           <View style={styles.weatherItem}>
             <Text style={styles.weatherEmoji}>🌡️</Text>
             <Text style={[styles.weatherVal, { color: '#F59E0B' }]}>
               {weather ? `${Math.round(weather.temperature)}°` : '—'}
             </Text>
           </View>
-
           <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
-
-          {/* AQI */}
           <View style={styles.weatherItem}>
             <Text style={styles.weatherEmoji}>💨</Text>
-            <Text style={[styles.weatherVal, { color: aqiColor }]}>AQI {aqiDisplay}</Text>
+            <Text style={[styles.weatherVal, { color: aqiColor }]}>
+              {AQI_LABELS[aqiIndex] || 'Fair'}
+            </Text>
           </View>
-
           <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
-
-          {/* Condition */}
           <View style={styles.weatherItem}>
             <Text style={styles.weatherEmoji}>{weatherEmoji}</Text>
             <Text style={[styles.weatherVal, { color: '#3B82F6' }]}>{weatherCondition}</Text>
@@ -354,13 +361,8 @@ export default function HomeScreen({ route }) {
   );
 }
 
-// ── Styles ─────────────────────────────────────
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-
-  // Top
+  root: { flex: 1 },
   overlayTop: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 54 : 36,
@@ -376,26 +378,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
   },
-  greetingSmall: {
-    fontSize: 12,
-    fontWeight: '500',
+  greetingSmall: { fontSize: 12, fontWeight: '500' },
+  greetingName: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
+  overlayBottom: { position: 'absolute', left: spacing.md, right: spacing.md, zIndex: 10 },
+  alertContainer: { marginBottom: spacing.sm, width: '100%' },
+  alertBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md - 2,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    ...shadows.md,
   },
-  greetingName: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-
-  // Bottom
-  overlayBottom: {
-    position: 'absolute',
-    bottom: spacing.sm,
-    left: spacing.md,
-    right: spacing.md,
-    zIndex: 10,
-  },
-
-  // Zone bar
+  alertEmoji: { fontSize: 22, marginRight: spacing.sm },
+  alertTitle: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+  alertReason: { fontSize: 13, fontWeight: '600', marginTop: 1 },
   zoneBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,17 +402,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     marginBottom: spacing.sm,
   },
-  zoneText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  zoneCondition: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
-  // Weather strip — compact single row
+  zoneText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  zoneCondition: { fontSize: 13, fontWeight: '700' },
   weatherStrip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -423,23 +412,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
     paddingHorizontal: spacing.sm,
   },
-  weatherItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-  },
-  weatherEmoji: {
-    fontSize: 16,
-    marginRight: 4,
-  },
-  weatherVal: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  weatherDivider: {
-    width: 1,
-    height: 20,
-    opacity: 0.3,
-  },
+  weatherItem: { flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' },
+  weatherEmoji: { fontSize: 16, marginRight: 4 },
+  weatherVal: { fontSize: 14, fontWeight: '700' },
+  weatherDivider: { width: 1, height: 20, opacity: 0.3 },
 });
