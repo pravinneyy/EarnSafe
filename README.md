@@ -209,17 +209,19 @@ Database + external data feeds
 
 ### Current trail-phase stack
 
-- Frontend: React Native with Expo
+- Frontend: React Native with Expo + react-native-maps (Integrated)
 - Navigation: React Navigation
 - Backend: FastAPI
 - Validation: Pydantic
 - Server: Uvicorn
 - Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
+- Storage: in-memory mock database
+- Monitoring: Openweather API (AQI + Weather) (Integrated)
 
 ### Planned additions for later phases
 
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
-- Data store: deeper PostgreSQL and Supabase coverage for policies, claims, and analytics
+- Data store: PostgreSQL or Supabase
 - Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
 - Payments: Razorpay sandbox or mock UPI simulation
 - Dashboard: simple web admin and analytics panel
