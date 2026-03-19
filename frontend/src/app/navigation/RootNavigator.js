@@ -1,11 +1,9 @@
 import React from 'react';
-import { StyleSheet, Text, View, Platform } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Feature Screens
 import RegisterScreen from '../../features/auth/screens/RegisterScreen';
 import ExistingUserScreen from '../../features/auth/screens/ExistingUserScreen';
 import SplashScreen from '../../features/auth/screens/SplashScreen';
@@ -13,8 +11,6 @@ import PlanSelectScreen from '../../features/policy/screens/PlanSelectScreen';
 import HomeScreen from '../../features/home/screens/HomeScreen';
 import ClaimHistoryScreen from '../../features/claims/screens/ClaimHistoryScreen';
 import AccountScreen from '../../features/account/screens/AccountScreen';
-
-// Theme & Shared
 import { radii, shadows, spacing } from '../../shared/theme';
 import { useTheme } from '../../shared/theme/ThemeContext';
 
@@ -50,7 +46,6 @@ function TabIcon({ route, focused }) {
 function MainTabs({ route }) {
   const params = route.params || {};
   const { isDark, colors: c } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -73,14 +68,9 @@ function MainTabs({ route }) {
           backgroundColor: isDark ? c.navy900 : '#FFFFFF',
           borderTopWidth: isDark ? 0 : 1,
           borderTopColor: c.border,
-          
-          // DYNAMIC FIX: 
-          // 1. Calculate height based on system navigation bar
-          height: 62 + insets.bottom, 
-          // 2. Add padding at the bottom to push icons above the system buttons
-          paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.sm,
-          
+          height: 62,
           paddingTop: spacing.xs,
+          paddingBottom: spacing.sm,
           ...shadows.elevated,
         },
         tabBarItemStyle: tabStyles.tabItem,

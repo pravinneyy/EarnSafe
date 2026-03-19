@@ -24,9 +24,9 @@ def check_disruption_triggers(temp, humidity, weather_desc, aqi):
         payout_multiplier = 0.8
 
     # 3. Trigger: Poor Air Quality 
-    elif aqi >= 3:
+    elif aqi >= 4:
         is_disrupted = True
-        reason = f"Unsafe Air Quality Levels (AQI: {aqi}) - TEST ACTIVE"
+        reason = f"Hazardous Air Quality (AQI: {aqi})"
         payout_multiplier = 0.6
 
     return {

@@ -26,15 +26,3 @@ app.include_router(weather_router.router)
 @app.get("/", tags=["Health"])
 def health():
     return {"status": "ok", "service": "Insurance API v1.0.0"}
-
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from fastapi import Request
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(f"ERROR: {exc.errors()}") # THIS WILL PRINT THE EXACT ERROR IN YOUR TERMINAL
-    return JSONResponse(
-        status_code=422,
-        content={"detail": exc.errors()},
-    )
