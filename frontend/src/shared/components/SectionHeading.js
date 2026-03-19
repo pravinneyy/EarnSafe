@@ -1,31 +1,36 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function SectionHeading({ title, subtitle, style }) {
+  const { colors } = useTheme();
+
   return (
     <View style={[styles.wrapper, style]}>
-      <Text style={styles.title}>{title}</Text>
-      {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+      {!!subtitle && (
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          {subtitle}
+        </Text>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   title: {
-    color: colors.text,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 22,
     fontWeight: '700',
-    marginBottom: spacing.xs,
+    letterSpacing: -0.2,
+    marginBottom: 4,
   },
   subtitle: {
-    color: colors.textSoft,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

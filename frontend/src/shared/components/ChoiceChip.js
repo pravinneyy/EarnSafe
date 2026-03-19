@@ -1,19 +1,28 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function ChoiceChip({ label, selected, onPress }) {
+  const { colors } = useTheme();
+
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => [
         styles.base,
-        selected && styles.selected,
+        {
+          borderColor: selected ? colors.accent : colors.border,
+          backgroundColor: selected ? colors.accent : colors.surface,
+        },
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.label, selected && styles.selectedLabel]}>{label}</Text>
+      <Text style={[styles.label, { color: selected ? '#FFFFFF' : colors.textSecondary }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -21,27 +30,20 @@ export default function ChoiceChip({ label, selected, onPress }) {
 const styles = StyleSheet.create({
   base: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderWidth: 1.5,
     marginRight: spacing.sm,
     marginBottom: spacing.sm,
-  },
-  selected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.8,
+    transform: [{ scale: 0.96 }],
   },
   label: {
-    color: colors.textSoft,
     fontSize: 14,
-    fontWeight: '500',
-  },
-  selectedLabel: {
-    color: colors.primary,
+    fontWeight: '600',
   },
 });

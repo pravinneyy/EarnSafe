@@ -4,3 +4,6 @@ node_modules/.bin/
 .expo/
 android
 __pycache__/
+.env
+backend/secrets.toml
+*.pyc

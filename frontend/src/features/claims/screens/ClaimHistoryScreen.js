@@ -8,24 +8,31 @@ import {
 } from 'react-native';
 
 import { getUserClaims } from '../../../services/api';
-import ClaimListItem from '../components/ClaimListItem';
-import { AppCard, Screen, SectionHeading } from '../../../shared/components';
-import { colors, spacing } from '../../../shared/theme';
+import {
+  AppCard,
+  Screen,
+  SectionHeading,
+} from '../../../shared/components';
+import { radii, shadows, spacing } from '../../../shared/theme';
+import { useTheme } from '../../../shared/theme/ThemeContext';
 import {
   formatCurrency,
   formatPercentFromRatio,
 } from '../../../shared/utils/format';
+import ClaimListItem from '../components/ClaimListItem';
 
 export default function ClaimHistoryScreen({ route }) {
-  const { user } = route.params;
+  const { user, policy } = route.params || {};
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { colors } = useTheme();
 
   async function loadClaims() {
+    if (!user?.id) return;
     try {
       const data = await getUserClaims(user.id);
-      setClaims([...data].sort((left, right) => right.id - left.id));
+      setClaims([...data].sort((a, b) => b.id - a.id));
     } finally {
       setLoading(false);
     }
@@ -33,7 +40,7 @@ export default function ClaimHistoryScreen({ route }) {
 
   useEffect(() => {
     loadClaims();
-  }, [user.id]);
+  }, [user?.id]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -41,18 +48,16 @@ export default function ClaimHistoryScreen({ route }) {
     setRefreshing(false);
   }
 
-  const approvedClaims = claims.filter(claim => claim.status === 'approved');
-  const totalPaid = approvedClaims.reduce(
-    (sum, claim) => sum + claim.claim_amount,
-    0
-  );
+  const approvedClaims = claims.filter(c => c.status === 'approved');
+  const totalPaid = approvedClaims.reduce((s, c) => s + c.claim_amount, 0);
   const approvalRatio = claims.length === 0 ? 0 : approvedClaims.length / claims.length;
 
   if (loading) {
     return (
-      <View style={styles.loadingState}>
-        <ActivityIndicator color={colors.primary} size="large" />
-      </View>
+      <Screen scroll={false} contentStyle={styles.loadingState}>
+        <ActivityIndicator color={colors.accent} size="large" />
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading claims...</Text>
+      </Screen>
     );
   }
 
@@ -62,34 +67,39 @@ export default function ClaimHistoryScreen({ route }) {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor={colors.primary}
+          tintColor={colors.accent}
         />
       }
+      contentStyle={styles.screenContent}
     >
       <SectionHeading
-        title="Claim history"
-        subtitle={`All automatically generated claims for ${user.name}.`}
+        title="Wallet"
+        subtitle={`Automated payouts for ${user?.name || 'you'}.`}
       />
 
-      <AppCard style={styles.summaryCard}>
-        <View style={styles.summaryGrid}>
-          <SummaryItem label="Claims" value={`${claims.length}`} />
-          <SummaryItem label="Approved" value={`${approvedClaims.length}`} />
-          <SummaryItem
-            label="Approval rate"
-            value={formatPercentFromRatio(approvalRatio)}
-          />
-          <SummaryItem label="Paid out" value={formatCurrency(totalPaid)} />
-        </View>
-      </AppCard>
+      {/* Summary Stats */}
+      <View style={styles.statsRow}>
+        <StatCard label="Total paid" value={formatCurrency(totalPaid)} accent />
+        <StatCard label="Claims" value={`${claims.length}`} />
+      </View>
+      <View style={styles.statsRow}>
+        <StatCard label="Approved" value={`${approvedClaims.length}`} />
+        <StatCard label="Approval rate" value={formatPercentFromRatio(approvalRatio)} />
+      </View>
+
+      <SectionHeading
+        title="Claim history"
+        subtitle="All automatic claim activity."
+        style={styles.claimsHeading}
+      />
 
       {claims.length === 0 ? (
-        <AppCard>
-          <Text style={styles.emptyTitle}>No claims yet</Text>
-          <Text style={styles.emptyText}>
-            Once a verified disruption triggers protection for this worker, the
-            generated claim will appear here with amount, review outcome, and
-            fraud score.
+        <AppCard variant="muted">
+          <Text style={styles.emptyIcon}>📭</Text>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>No claims yet</Text>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+            Once a verified disruption triggers protection, the generated claim
+            will show up here with payout and review status.
           </Text>
         </AppCard>
       ) : (
@@ -99,52 +109,39 @@ export default function ClaimHistoryScreen({ route }) {
   );
 }
 
-function SummaryItem({ label, value }) {
+function StatCard({ label, value, accent = false }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.summaryItem}>
-      <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
+    <View style={[
+      styles.statCard,
+      {
+        backgroundColor: accent ? colors.navy800 : colors.surface,
+        borderColor: accent ? colors.borderNavy : colors.borderLight,
+      },
+    ]}>
+      <Text style={[styles.statValue, { color: accent ? colors.emerald400 : colors.text }]}>
+        {value}
+      </Text>
+      <Text style={[styles.statLabel, { color: accent ? '#94A3B8' : colors.textSecondary }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  loadingState: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
+  screenContent: { paddingTop: spacing.lg },
+  loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  loadingText: { fontSize: 14, marginTop: spacing.md },
+  statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  statCard: {
+    flex: 1, borderRadius: radii.md, padding: spacing.md,
+    borderWidth: 1, ...shadows.sm,
   },
-  summaryCard: {
-    marginBottom: spacing.lg,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  summaryItem: {
-    width: '50%',
-    marginBottom: spacing.md,
-  },
-  summaryValue: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    color: colors.textSoft,
-    fontSize: 13,
-  },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  emptyText: {
-    color: colors.textSoft,
-    fontSize: 14,
-    lineHeight: 22,
-  },
+  statValue: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  statLabel: { fontSize: 13, fontWeight: '500' },
+  claimsHeading: { marginTop: spacing.lg },
+  emptyIcon: { fontSize: 32, textAlign: 'center', marginBottom: spacing.sm },
+  emptyTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: spacing.xs },
+  emptyText: { fontSize: 14, lineHeight: 22, textAlign: 'center' },
 });

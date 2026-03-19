@@ -64,7 +64,7 @@ These two scenarios define the core value of the platform:
 
 ## End-to-End Workflow
 
-1. A delivery worker registers in the mobile app with city, delivery zone, platform, weekly income, and work profile.
+1. A delivery worker registers in the mobile app with a username, password, city, delivery zone, platform, weekly income, and work profile.
 2. The backend creates a risk profile using worker details, zone-level disruption exposure, and AI scoring.
 3. The worker is shown weekly plan options and an appropriate premium.
 4. Once the policy is active, the backend monitors configured external triggers for the worker's zone.
@@ -81,7 +81,7 @@ These two scenarios define the core value of the platform:
 | Standard | Rs. 49         | Rs. 500                 | Rs. 2500          |
 | Pro      | Rs. 89         | Rs. 800                 | Rs. 4000          |
 
-These values are not stipulated abd might change as we work on our prototye
+These values are not stipulated and might change as we work on our prototype
 
 ### Pricing logic
 
@@ -209,16 +209,17 @@ Database + external data feeds
 
 ### Current trail-phase stack
 
-- Frontend: React Native with Expo
+- Frontend: React Native with Expo + react-native-maps (Integrated)
 - Navigation: React Navigation
 - Backend: FastAPI
 - Validation: Pydantic
 - Server: Uvicorn
+- Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
 - Storage: in-memory mock database
+- Monitoring: Openweather API (AQI + Weather) (Integrated)
 
 ### Planned additions for later phases
 
-- Database: supabase
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
 - Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
