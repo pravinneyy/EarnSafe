@@ -148,6 +148,12 @@ That score will be used for:
 - worker risk banding
 - expected claims exposure by zone
 
+### 2. Deep Dive: Model Execution & Crisis Response
+During high-risk periods or coordinated disruption events (such as the reported 500-person spoofing syndicate), our models execute two distinct defensive roles in the background:
+
+*   **The Adjuster (CatBoost):** While CatBoost calculates dynamic premiums, it also reacts to environmental anomalies. If a specific geographic zone shows an impossible surge in claims that contradicts official meteorological APIs, the Adjuster temporarily spikes the risk multiplier for that geofence, financially disincentivizing further attacks until the anomaly is resolved.
+*   **The Shield (Isolation Forest):** To protect the liquidity pool, we use Isolation Forest to calculate the decision path length for each claim. When a syndicate spoofs the same location simultaneously, their data clusters tightly. The Shield instantly isolates this unnatural cluster, assigning it a critical anomaly score and freezing the payout pipeline.
+
 ### Training data plan
 
 Because real insurer-grade data is not available in the hackathon, the model will be trained on a combined dataset built from:
@@ -168,6 +174,22 @@ Because real insurer-grade data is not available in the hackathon, the model wil
 5. Evaluate AUC, precision, recall, and calibration.
 6. Export the model artifact.
 7. Load the model in the backend inference layer for scoring.
+
+## 🛡️ Adversarial Defense & Anti-Spoofing Strategy
+
+In response to reports of advanced GPS-spoofing syndicates, our intelligence layer has officially deprecated basic GPS-reliance. We differentiate bad actors from genuinely stranded workers by analyzing corroborating, un-fakeable **"Sensor Fusion"** signals:
+
+*   **IMU Sensor Data (Accelerometer & Gyroscope):** A worker genuinely riding a bike in a severe storm produces distinct, erratic motion signatures. A spoofer registers near-zero movement. GPS-spoofing apps cannot inject fake hardware-level IMU data.
+*   **Battery Drain & Thermal Dynamics:** Active navigation in the rain results in specific battery drain and thermal throttling. A phone idle on a couch drains at a vastly different baseline.
+*   **Network Fluctuation Realities:** Genuine bad weather causes severe signal drops and cell tower handoffs. A spoofer connected to stable home Wi-Fi during a "red-alert storm" is an immediate anomaly.
+*   **Telecom Cell Tower Triangulation:** Cross-referencing which physical cell tower the device is pinging versus its software-claimed GPS zone.
+
+### Fair Handling of Flagged Claims (UX Balance)
+A fraud system that wrongly penalizes honest workers is a failure. We manage flags through a tiered response model:
+- 🟢 **Clean Score:** Auto-approved payout, zero friction.
+- 🟡 **Mild Flag:** Payout approved instantly; logged for ongoing monitoring.
+- 🟠 **Medium Flag:** Payout held temporarily (2–4 hours). The worker receives a neutral notification: *"We're verifying your claim due to local network conditions — no action needed."*
+- 🔴 **High Confidence Fraud:** Payout blocked. Human review triggered with a lightweight live photo appeal.
 
 ## Fraud Detection Strategy
 
@@ -197,8 +219,8 @@ FastAPI Backend
     |
     +--> User and policy services
     +--> Trigger monitoring service
-    +--> Claim and fraud service
-    +--> CatBoost inference service
+    +--> Claim and fraud service (Shield + Sensor Fusion)
+    +--> CatBoost inference service (Adjuster)
     +--> Payout simulator
     |
     v
@@ -273,6 +295,7 @@ What will be added to fully match the use case:
 EarnSafe is an AI-powered, mobile-first, parametric insurance platform for food delivery workers. It protects weekly income loss caused by verified external disruptions, uses weekly premiums instead of traditional long-cycle pricing, and combines backend automation with CatBoost-based risk intelligence to create faster, fairer protection for gig workers.
 
 This README is intended to serve as the Phase 1 strategy document: it explains the problem, the chosen persona, the workflow, the weekly pricing model, the parametric triggers, the AI and fraud plan, the tech stack, and the phased execution plan.
+By combining **CatBoost** for fair pricing and **Isolation Forest** with **Sensor Fusion** for adversarial defense, EarnSafe provides the first robust, parametric protection for the backbone of India's gig economy.
 
 ---
 
