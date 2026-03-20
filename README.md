@@ -115,13 +115,13 @@ This keeps the product aligned to lost wages instead of unrelated expenses.
 
 The use case asks for automated disruption triggers. For this persona, the core triggers are:
 
-| Trigger                       | Example source                      | Why it matters                                       |
-| ----------------------------- | ----------------------------------- | ---------------------------------------------------- |
-| Heavy rainfall                | Weather API or mock weather feed    | Riders cannot safely complete deliveries             |
-| Flood or waterlogging alert   | Civic or municipal alert feed       | Pickup and drop routes become unusable               |
-| Extreme heat                  | Weather or heat index API           | Outdoor work becomes unsafe or restricted            |
-| Severe AQI                    | AQI API or mock pollution feed      | Health-sensitive outdoor exposure reduces shift time |
-| Curfew or sudden zone closure | Mock civic feed or admin event feed | Workers cannot access the delivery zone              |
+| Trigger                       | Example source                      | Why it matters                                       | Status               |
+| ----------------------------- | ----------------------------------- | ---------------------------------------------------- | -------------------- |
+| Heavy rainfall                | OpenWeather API                     | Riders cannot safely complete deliveries             | Implemented          |
+| Flood or waterlogging alert   | Civic or municipal alert feed       | Pickup and drop routes become unusable               | Implemented          |
+| Extreme heat                  | OpenWeather API heat index          | Outdoor work becomes unsafe or restricted            | Implemented          |
+| Severe AQI                    | AQI API                             | Health-sensitive outdoor exposure reduces shift time | Implemented          |
+| Curfew or sudden zone closure | Mock civic feed or admin event feed | Workers cannot access the delivery zone              | Planned for Phase 2  |
 
 ## AI and ML Strategy
 
@@ -259,7 +259,6 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 - Validation: Pydantic
 - Server: Uvicorn
 - Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
-- Storage: in-memory mock database
 - Monitoring: Openweather API (AQI + Weather) (Integrated)
 
 ### Planned additions for later phases
