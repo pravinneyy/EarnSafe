@@ -15,7 +15,7 @@ from sklearn.ensemble import IsolationForest
 # ──────────────────────────────────────────────
 # MODEL INITIALIZATION (runs once on import)
 # ──────────────────────────────────────────────
-print("⚡ Booting EarnSafe AI Models...")
+print("Booting EarnSafe AI Models...")
 
 # --- CatBoost Risk Model ---
 _CATEGORICAL_FEATURES = ["Zone", "Delivery_Persona", "External_Disruption"]
@@ -44,7 +44,7 @@ _X_historical = np.array([
 ])
 fraud_model.fit(_X_historical)
 
-print("✅ AI Models loaded successfully.")
+print("AI models loaded successfully.")
 
 # ──────────────────────────────────────────────
 # TIER BASE RATES

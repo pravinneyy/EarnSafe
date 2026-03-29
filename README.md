@@ -260,13 +260,13 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 - Server: Uvicorn
 - Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
 - Monitoring: Openweather API (AQI + Weather) (Integrated)
+- Payments: Razorpay sandbox order creation + signature verification
 
 ### Planned additions for later phases
 
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
 - Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
-- Payments: Razorpay sandbox or mock UPI simulation
 - Dashboard: simple web admin and analytics panel
 
 ## Development Plan
@@ -300,12 +300,15 @@ By combining **CatBoost** for fair pricing and **Isolation Forest** with **Senso
 
 ## How to Run
 
+For the payment setup used by the mobile app, see `docs/razorpay-sandbox-setup.md`.
+
 ### Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- Expo CLI (`npm install -g expo-cli`)
-- Android emulator or a physical device with the Expo Go app
+- Android Studio emulator or a physical Android device
+- Xcode if you want to run the iOS build
+- A Razorpay account with Test Mode enabled
 
 ### 1. Install Backend Dependencies
 
@@ -324,9 +327,25 @@ Create a `.env` file in the project root with:
 OPENWEATHER_API_KEY=<your_openweather_api_key>
 SUPABASE_URL=<your_supabase_project_url>
 SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
+RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
+RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
 ```
 
-### 3. Start the Backend
+For the frontend, create `frontend/.env` if you want to pin the backend URL instead of relying on Expo host detection:
+
+```
+EXPO_PUBLIC_API_BASE_URL=http://<your-lan-ip>:8000
+```
+
+### 3. Razorpay Sandbox Setup
+
+1. Log in to the Razorpay Dashboard and switch to Test Mode.
+2. Open Account & Settings -> Website and App Settings -> API Keys.
+3. Generate a Test Key Id and Test Key Secret.
+4. Copy those values into the root `.env` file as `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`.
+5. Make sure your test payments are captured so successful checkouts do not remain in a pending state.
+
+### 4. Start the Backend
 
 ```bash
 cd backend
@@ -335,21 +354,54 @@ python run.py
 
 The server starts at **http://localhost:8000** with hot-reload enabled. You will see `⚡ Booting EarnSafe AI Models...` in the console confirming the ML models are loaded.
 
-### 4. Start the Frontend
+### 5. Install Frontend Dependencies
+
+Use a terminal opened in `frontend`. Do not run Expo commands from the repository root because the root `package.json` is not the Expo app.
+
+The current backend startup log text is `Booting EarnSafe AI Models...`.
 
 ```bash
 cd frontend
 npm install
-npx expo start
 ```
 
-- Press `a` to launch on an Android emulator
-- Press `i` to launch on an iOS simulator
-- Or scan the QR code with the Expo Go app on your phone
+### 6. Generate Native Projects for Expo
 
-> **Note:** Make sure your phone and computer are on the same Wi-Fi network. The app auto-detects the backend URL from the Expo bundler host.
+```bash
+cd frontend
+npx expo prebuild
+```
 
-### 5. (Optional) Run the Standalone AI Demo Server
+Run this again when a new native dependency is added.
+
+### 7. Run the Frontend
+
+For Android:
+
+```bash
+cd frontend
+npx expo run:android
+```
+
+For iOS:
+
+```bash
+cd frontend
+npx expo run:ios
+```
+
+Important notes:
+
+- Run Expo commands from `frontend`, not from the repository root.
+- Razorpay checkout does not work inside Expo Go because `react-native-razorpay` is a native module.
+- Use `npx expo run:android`, `npx expo run:ios`, or a custom dev client build.
+- Android Studio, the Android SDK, and the Android emulator must be installed before `npx expo run:android` will work.
+- After setting `JAVA_HOME`, `ANDROID_HOME`, or `ANDROID_SDK_ROOT`, open a fresh terminal so Expo and Gradle can see them.
+- Make sure your phone and computer are on the same Wi-Fi network if you are testing on a physical device.
+- `EXPO_PUBLIC_API_BASE_URL` is recommended for real-device testing.
+- The first Android build is slow because Gradle downloads and compiles the native toolchain. Later builds are much faster.
+
+### 8. (Optional) Run the Standalone AI Demo Server
 
 ```bash
 cd ai/ml
@@ -358,7 +410,7 @@ uvicorn fastapiwrapper:app --reload --port 8001
 
 This runs the AI models as an independent server on port 8001 for testing or demo purposes.
 
-### 6. Test the AI Endpoint
+### 9. Test the AI Endpoint
 
 ```bash
 curl "http://localhost:8000/policy/ai-premium?zone=Velachery&persona=Food&tier=standard"
@@ -397,6 +449,14 @@ python test.py
 | `POST` | `/policy/create`                                  | Create and activate a policy                      |
 | `GET`  | `/policy/{policy_id}`                             | Get policy details                                |
 | `GET`  | `/policy/user/{user_id}`                          | Get all policies for a user                       |
+
+### Payments
+
+| Method | Endpoint           | Description |
+|--------|--------------------|-------------|
+| `POST` | `/payments/quote`  | Create a short-lived backend quote for a plan |
+| `POST` | `/payments/order`  | Create a Razorpay sandbox order from that quote |
+| `POST` | `/payments/verify` | Verify the Razorpay signature and activate the policy |
 
 ### Claims
 

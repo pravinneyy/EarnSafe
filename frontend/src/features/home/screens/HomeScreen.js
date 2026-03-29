@@ -11,11 +11,11 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 
 import { getLiveWeather, getAirQuality, getForecast } from '../../../services/api/weatherApi';
 import { AppPill } from '../../../shared/components';
+import LiveMap from '../../../shared/components/LiveMap';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
 
@@ -287,19 +287,16 @@ export default function HomeScreen({ route }) {
   return (
     <View style={styles.root}>
       {/* ── Full-screen Map ── */}
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        initialRegion={region}
-        customMapStyle={isDark ? darkMapStyle : lightMapStyle}
-        showsUserLocation
-        showsMyLocationButton={false}
-        showsCompass={false}
-      >
-        {location && (
-          <Marker coordinate={location} title={firstName} description="Your current location" />
-        )}
-      </MapView>
+      <LiveMap
+        mapRef={mapRef}
+        region={region}
+        isDark={isDark}
+        location={location}
+        firstName={firstName}
+        darkMapStyle={darkMapStyle}
+        lightMapStyle={lightMapStyle}
+        zone={user?.delivery_zone}
+      />
 
       {/* ── TOP OVERLAY: Greeting + Status ── */}
       <View style={styles.overlayTop}>

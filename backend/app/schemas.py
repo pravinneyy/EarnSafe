@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -85,6 +86,61 @@ class PolicyResponse(BaseModel):
     daily_coverage: float
     max_weekly_payout: float
     status: str
+
+
+class PaymentQuoteCreate(BaseModel):
+    user_id: int
+    plan_tier: PlanTier
+
+
+class PaymentQuoteResponse(BaseModel):
+    id: str
+    user_id: int
+    plan_tier: str
+    weekly_premium: float
+    amount: int
+    currency: str
+    base_premium: float
+    daily_coverage: float
+    max_weekly_payout: float
+    ai_risk_score: float
+    zone: str
+    active_disruption: str
+    created_at: datetime
+    expires_at: datetime
+
+
+class PaymentOrderCreate(BaseModel):
+    user_id: int
+    plan_tier: PlanTier
+    quote_id: str
+
+
+class PaymentOrderResponse(BaseModel):
+    order_id: str
+    key_id: str
+    amount: int
+    currency: str
+    name: str
+    description: str
+    quote: PaymentQuoteResponse
+
+
+class PaymentVerificationRequest(BaseModel):
+    user_id: int
+    plan_tier: PlanTier
+    quote_id: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class PaymentVerificationResponse(BaseModel):
+    status: str
+    payment_status: str
+    order_id: str
+    payment_id: str
+    policy: PolicyResponse
 
 
 class ClaimCreate(BaseModel):

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,37 +9,27 @@ import {
   View,
 } from 'react-native';
 
-import { createPolicy, getAIPremium } from '../../../services/api';
+import { createPaymentOrder, createPaymentQuote, verifyPayment } from '../../../services/api';
+import { openRazorpayCheckout, isPaymentCancellation, getPaymentErrorMessage } from '../../../services/razorpayCheckout';
 import { getRiskMessage, PLANS } from '../constants';
 import PlanOptionCard from '../components/PlanOptionCard';
-import {
-  AppButton,
-  AppCard,
-  AppPill,
-  Screen,
-  SectionHeading,
-} from '../../../shared/components';
-import { radii, spacing } from '../../../shared/theme';
-import { useTheme } from '../../../shared/theme/ThemeContext';
-import {
-  formatCurrency,
-  formatPercentFromScore,
-  toTitleCase,
-} from '../../../shared/utils/format';
+import { AppButton, AppCard, AppPill, Screen, SectionHeading } from '../../../shared/components';
+import { spacing } from '../../../shared/theme';
+import { formatCurrency, formatPercentFromScore, toTitleCase } from '../../../shared/utils/format';
 
-// ── Risk gauge arc visual ────────────────────
 function RiskGauge({ score, color }) {
-  const animVal = useRef(new Animated.Value(0)).current;
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    Animated.timing(animVal, {
+    Animated.timing(animatedValue, {
       toValue: score,
       duration: 800,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-  }, [score]);
+  }, [animatedValue, score]);
 
-  const width = animVal.interpolate({
+  const width = animatedValue.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
     extrapolate: 'clamp',
@@ -67,62 +57,115 @@ const gaugeStyles = StyleSheet.create({
   },
 });
 
-// ── Risk level helper ────────────────────────
 function getRiskLevel(score) {
-  if (score >= 0.7) return { label: 'High Risk', color: '#EF4444', emoji: '🔴' };
-  if (score >= 0.4) return { label: 'Moderate', color: '#F59E0B', emoji: '🟡' };
-  return { label: 'Low Risk', color: '#10B981', emoji: '🟢' };
+  if (score >= 0.7) {
+    return { label: 'High risk', color: '#EF4444', tone: 'danger' };
+  }
+  if (score >= 0.4) {
+    return { label: 'Moderate', color: '#F59E0B', tone: 'warning' };
+  }
+  return { label: 'Low risk', color: '#10B981', tone: 'success' };
 }
 
-// ── Main component ───────────────────────────
 export default function PlanSelectScreen({ route, navigation }) {
   const { user, policy } = route.params || {};
   const [selectedTier, setSelectedTier] = useState(policy?.plan_tier || 'standard');
-  const [loading, setLoading] = useState(false);
-  const [aiData, setAiData] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const { colors } = useTheme();
+  const [quote, setQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   const selectedPlan = PLANS.find(plan => plan.tier === selectedTier);
-  const isViewMode = !!policy;
+  const isViewMode = Boolean(policy);
 
-  // Fetch AI premium whenever tier changes
   useEffect(() => {
-    if (isViewMode) return;
-    let cancelled = false;
-    setAiLoading(true);
-    getAIPremium(user?.delivery_zone || 'OMR', user?.platform || 'Food', selectedTier)
-      .then(data => { if (!cancelled) setAiData(data); })
-      .catch(() => { if (!cancelled) setAiData(null); })
-      .finally(() => { if (!cancelled) setAiLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedTier]);
+    if (isViewMode || !user?.id) {
+      return undefined;
+    }
 
-  async function handleCreatePolicy() {
-    setLoading(true);
+    let cancelled = false;
+
+    async function fetchQuote() {
+      setQuoteLoading(true);
+      setQuoteError('');
+
+      try {
+        const nextQuote = await createPaymentQuote({
+          user_id: user.id,
+          plan_tier: selectedTier,
+        });
+
+        if (!cancelled) {
+          setQuote(nextQuote);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setQuote(null);
+          setQuoteError(error.message);
+        }
+      } finally {
+        if (!cancelled) {
+          setQuoteLoading(false);
+        }
+      }
+    }
+
+    fetchQuote();
+    return () => {
+      cancelled = true;
+    };
+  }, [isViewMode, selectedTier, user?.id]);
+
+  async function handleActivatePolicy() {
+    if (!user?.id || !selectedPlan) {
+      return;
+    }
+
+    if (!quote) {
+      Alert.alert('Quote unavailable', 'Refresh the quote before starting the payment.');
+      return;
+    }
+
+    setPaymentLoading(true);
+
     try {
-      const newPolicy = await createPolicy({
+      const order = await createPaymentOrder({
         user_id: user.id,
         plan_tier: selectedTier,
+        quote_id: quote.id,
       });
+
+      const checkoutResult = await openRazorpayCheckout(order, user);
+      const verification = await verifyPayment({
+        user_id: user.id,
+        plan_tier: selectedTier,
+        quote_id: quote.id,
+        razorpay_order_id: checkoutResult.razorpay_order_id || order.order_id,
+        razorpay_payment_id: checkoutResult.razorpay_payment_id,
+        razorpay_signature: checkoutResult.razorpay_signature,
+      });
+
       navigation.reset({
         index: 0,
-        routes: [{ name: 'Main', params: { user, policy: newPolicy } }],
+        routes: [{ name: 'Main', params: { user, policy: verification.policy } }],
       });
     } catch (error) {
-      Alert.alert('Plan creation failed', error.message);
+      if (isPaymentCancellation(error)) {
+        Alert.alert('Payment cancelled', 'Your plan was not activated.');
+      } else {
+        Alert.alert('Payment failed', getPaymentErrorMessage(error));
+      }
     } finally {
-      setLoading(false);
+      setPaymentLoading(false);
     }
   }
 
-  // Derived AI data
-  const riskScore = aiData?.ai_risk_score ?? 0;
+  const riskScore = quote?.ai_risk_score ?? 0;
   const riskLevel = getRiskLevel(riskScore);
   const basePremium = selectedPlan?.premium ?? 0;
-  const aiPremium = aiData?.weekly_premium_inr ?? 0;
-  const premiumDiff = aiPremium - basePremium;
-  const hasDisruption = aiData?.active_disruption && aiData.active_disruption !== 'None';
+  const quotedPremium = quote?.weekly_premium ?? basePremium;
+  const premiumDiff = quotedPremium - basePremium;
+  const hasDisruption = quote?.active_disruption && quote.active_disruption !== 'None';
 
   return (
     <Screen contentStyle={styles.content}>
@@ -131,19 +174,16 @@ export default function PlanSelectScreen({ route, navigation }) {
         subtitle={
           isViewMode
             ? `Your ${toTitleCase(policy.plan_tier)} Shield is currently active.`
-            : 'Pick the cover that fits a normal riding week.'
+            : 'Pick the cover that fits a normal riding week and complete checkout to activate it.'
         }
       />
 
-      {/* ── User Risk Profile Card ── */}
       {user && (
         <AppCard variant="navy" style={styles.riskCard}>
           <View style={styles.riskHeader}>
             <View>
               <Text style={styles.riskLabel}>Risk score</Text>
-              <Text style={styles.riskValue}>
-                {formatPercentFromScore(user.risk_score)}
-              </Text>
+              <Text style={styles.riskValue}>{formatPercentFromScore(user.risk_score)}</Text>
             </View>
             <AppPill label={user.city} tone="accent" />
           </View>
@@ -151,12 +191,11 @@ export default function PlanSelectScreen({ route, navigation }) {
           <View style={styles.riskMeta}>
             <RiskMetaItem label="Platform" value={toTitleCase(user.platform)} />
             <RiskMetaItem label="Zone" value={user.delivery_zone} />
-            <RiskMetaItem label="Income" value={`₹${user.weekly_income}`} />
+            <RiskMetaItem label="Income" value={formatCurrency(user.weekly_income)} />
           </View>
         </AppCard>
       )}
 
-      {/* ── Plan Cards ── */}
       {PLANS.map(plan => (
         <PlanOptionCard
           key={plan.tier}
@@ -167,135 +206,110 @@ export default function PlanSelectScreen({ route, navigation }) {
         />
       ))}
 
-      {/* ── AI Risk Intelligence Panel ── */}
       {!isViewMode && (
-        <View style={styles.aiSection}>
-          <Text style={styles.aiSectionTitle}>🤖 AI Risk Intelligence</Text>
-          <Text style={styles.aiSectionSubtitle}>
-            Powered by CatBoost — real-time analysis of your zone, platform, and conditions
+        <View style={styles.quoteSection}>
+          <Text style={styles.quoteSectionTitle}>AI quote</Text>
+          <Text style={styles.quoteSectionSubtitle}>
+            The amount below is what the backend will use to create the Razorpay sandbox order.
           </Text>
 
-          {aiLoading ? (
-            <AppCard variant="navy" style={styles.aiCard}>
+          {quoteLoading ? (
+            <AppCard variant="navy" style={styles.quoteCard}>
               <ActivityIndicator color="#34D399" size="small" />
-              <Text style={styles.aiLoadingText}>Analyzing risk factors...</Text>
+              <Text style={styles.quoteLoadingText}>Preparing live quote...</Text>
             </AppCard>
-          ) : aiData ? (
+          ) : quote ? (
             <>
-              {/* Risk Score Card */}
-              <AppCard variant="navy" style={styles.aiCard}>
-                <View style={styles.aiCardHeader}>
-                  <Text style={styles.aiCardLabel}>AI Risk Score</Text>
-                  <View style={styles.riskBadge}>
-                    <Text style={{ fontSize: 10 }}>{riskLevel.emoji}</Text>
-                    <Text style={[styles.riskBadgeText, { color: riskLevel.color }]}>
-                      {riskLevel.label}
-                    </Text>
-                  </View>
+              <AppCard variant="navy" style={styles.quoteCard}>
+                <View style={styles.quoteHeader}>
+                  <Text style={styles.quoteCardLabel}>Risk assessment</Text>
+                  <AppPill label={riskLevel.label} tone={riskLevel.tone} />
                 </View>
-                <Text style={[styles.aiScoreNumber, { color: riskLevel.color }]}>
+                <Text style={[styles.quoteScore, { color: riskLevel.color }]}>
                   {(riskScore * 100).toFixed(0)}%
                 </Text>
                 <RiskGauge score={riskScore} color={riskLevel.color} />
-                <Text style={styles.aiScoreCaption}>
-                  Based on {user?.delivery_zone || 'your zone'} conditions and {toTitleCase(user?.platform || 'your')} delivery patterns
+                <Text style={styles.quoteCaption}>
+                  Based on {quote.zone} conditions and {toTitleCase(user?.platform || 'delivery')} activity.
                 </Text>
               </AppCard>
 
-              {/* Dynamic Premium Comparison */}
-              <AppCard variant="navy" style={styles.aiCard}>
-                <Text style={styles.aiCardLabel}>Dynamic Premium</Text>
-                <View style={styles.premiumCompareRow}>
-                  <View style={styles.premiumCol}>
-                    <Text style={styles.premiumColLabel}>Base</Text>
-                    <Text style={styles.premiumColValueBase}>
-                      ₹{basePremium}
+              <AppCard variant="navy" style={styles.quoteCard}>
+                <Text style={styles.quoteCardLabel}>Weekly premium</Text>
+                <View style={styles.priceCompareRow}>
+                  <View style={styles.priceColumn}>
+                    <Text style={styles.priceColumnLabel}>Base plan</Text>
+                    <Text style={styles.priceBaseValue}>{formatCurrency(basePremium)}</Text>
+                  </View>
+                  <View style={styles.priceColumn}>
+                    <Text style={styles.priceColumnLabel}>Pay now</Text>
+                    <Text style={[styles.priceQuotedValue, { color: riskLevel.color }]}>
+                      {formatCurrency(quotedPremium)}
                     </Text>
-                    <Text style={styles.premiumColSuffix}>/week</Text>
                   </View>
-                  <View style={styles.premiumArrow}>
-                    <Text style={{ color: '#64748B', fontSize: 18 }}>→</Text>
-                  </View>
-                  <View style={styles.premiumCol}>
-                    <Text style={styles.premiumColLabel}>AI Adjusted</Text>
-                    <Text style={[styles.premiumColValueAI, { color: riskLevel.color }]}>
-                      ₹{aiPremium.toFixed(0)}
-                    </Text>
-                    <Text style={styles.premiumColSuffix}>/week</Text>
-                  </View>
+                </View>
+                <View style={styles.coverageRow}>
+                  <CoverageStat label="Daily cover" value={formatCurrency(quote.daily_coverage)} />
+                  <CoverageStat label="Max payout" value={formatCurrency(quote.max_weekly_payout)} />
                 </View>
                 {premiumDiff !== 0 && (
-                  <View style={[
-                    styles.premiumDiffBadge,
-                    { backgroundColor: premiumDiff > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)' },
-                  ]}>
-                    <Text style={[
-                      styles.premiumDiffText,
-                      { color: premiumDiff > 0 ? '#EF4444' : '#10B981' },
-                    ]}>
-                      {premiumDiff > 0 ? '▲' : '▼'} ₹{Math.abs(premiumDiff).toFixed(0)} {premiumDiff > 0 ? 'surge' : 'savings'} based on current conditions
-                    </Text>
-                  </View>
-                )}
-              </AppCard>
-
-              {/* Zone Status */}
-              <AppCard variant="navy" style={styles.aiCard}>
-                <Text style={styles.aiCardLabel}>Zone Status</Text>
-                <View style={styles.zoneStatusRow}>
-                  <View style={styles.zoneStatusItem}>
-                    <Text style={styles.zoneStatusEmoji}>📍</Text>
-                    <Text style={styles.zoneStatusText}>{aiData.zone || user?.delivery_zone || '—'}</Text>
-                  </View>
-                  <View style={[
-                    styles.zoneStatusPill,
-                    { backgroundColor: hasDisruption ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)' },
-                  ]}>
-                    <Text style={{
-                      color: hasDisruption ? '#EF4444' : '#10B981',
-                      fontSize: 12,
-                      fontWeight: '700',
-                    }}>
-                      {hasDisruption ? '⚠️ ' + aiData.active_disruption : '✅ Normal'}
-                    </Text>
-                  </View>
-                </View>
-                {hasDisruption && (
-                  <Text style={styles.disruptionNote}>
-                    Active disruption detected in your zone. Premium has been adjusted to reflect higher coverage risk.
+                  <Text
+                    style={[
+                      styles.deltaText,
+                      { color: premiumDiff > 0 ? '#FCA5A5' : '#6EE7B7' },
+                    ]}
+                  >
+                    {premiumDiff > 0 ? 'Higher than base by ' : 'Lower than base by '}
+                    {formatCurrency(Math.abs(premiumDiff))}
                   </Text>
                 )}
               </AppCard>
+
+              <AppCard variant="navy" style={styles.quoteCard}>
+                <Text style={styles.quoteCardLabel}>Zone status</Text>
+                <View style={styles.zoneStatusRow}>
+                  <Text style={styles.zoneValue}>{quote.zone}</Text>
+                  <AppPill
+                    label={hasDisruption ? quote.active_disruption : 'Normal'}
+                    tone={hasDisruption ? 'danger' : 'success'}
+                  />
+                </View>
+                <Text style={styles.zoneNote}>
+                  {hasDisruption
+                    ? 'Active disruption detected for this quote window. The premium already reflects that risk.'
+                    : 'No active disruption was detected for this quote window.'}
+                </Text>
+              </AppCard>
             </>
           ) : (
-            <AppCard variant="navy" style={styles.aiCard}>
-              <Text style={styles.aiErrorIcon}>📡</Text>
-              <Text style={styles.aiErrorText}>
-                AI analysis unavailable. Premiums will use standard pricing.
+            <AppCard variant="navy" style={styles.quoteCard}>
+              <Text style={styles.quoteErrorTitle}>Unable to prepare quote</Text>
+              <Text style={styles.quoteErrorText}>
+                {quoteError || 'The backend did not return a valid premium quote.'}
               </Text>
             </AppCard>
           )}
         </View>
       )}
 
-      {/* ── Action Buttons ── */}
       {!isViewMode && (
         <>
           <AppButton
             label={
-              aiData
-                ? `Activate ${selectedPlan.label} · ₹${aiPremium.toFixed(0)}/wk`
+              quote
+                ? `Pay ${formatCurrency(quote.weekly_premium)} and activate ${selectedPlan.label}`
                 : `Activate ${selectedPlan.label}`
             }
             variant="accent"
-            onPress={handleCreatePolicy}
-            loading={loading}
+            onPress={handleActivatePolicy}
+            loading={paymentLoading}
+            disabled={!quote || quoteLoading}
           />
           <AppButton
             label="Back"
             variant="secondary"
             onPress={() => navigation.goBack()}
-            style={styles.backBtn}
+            style={styles.backButton}
           />
         </>
       )}
@@ -303,7 +317,6 @@ export default function PlanSelectScreen({ route, navigation }) {
   );
 }
 
-// ── Helpers ───────────────────────────────────
 function RiskMetaItem({ label, value }) {
   return (
     <View style={styles.riskMetaItem}>
@@ -313,80 +326,189 @@ function RiskMetaItem({ label, value }) {
   );
 }
 
-// ── Styles ───────────────────────────────────
+function CoverageStat({ label, value }) {
+  return (
+    <View style={styles.coverageStat}>
+      <Text style={styles.coverageValue}>{value}</Text>
+      <Text style={styles.coverageLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  content: { paddingTop: spacing.lg },
-
-  // Risk profile card
-  riskCard: { marginBottom: spacing.lg },
-  riskHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: spacing.md,
+  content: {
+    paddingTop: spacing.lg,
   },
-  riskLabel: { color: '#94A3B8', fontSize: 13, marginBottom: 4 },
-  riskValue: { color: '#FFFFFF', fontSize: 34, fontWeight: '700' },
-  riskNote: { color: '#94A3B8', fontSize: 14, lineHeight: 22, marginBottom: spacing.md },
-  riskMeta: { flexDirection: 'row', flexWrap: 'wrap' },
-  riskMetaItem: { width: '50%', marginBottom: spacing.sm },
-  riskMetaLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 4 },
-  riskMetaValue: { color: '#34D399', fontSize: 14, fontWeight: '600' },
-
-  // AI section
-  aiSection: { marginTop: spacing.md, marginBottom: spacing.lg },
-  aiSectionTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 4 },
-  aiSectionSubtitle: { color: '#64748B', fontSize: 13, lineHeight: 20, marginBottom: spacing.md },
-  aiCard: { marginBottom: spacing.sm },
-  aiCardHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  riskCard: {
+    marginBottom: spacing.lg,
+  },
+  riskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  riskLabel: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  riskValue: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '700',
+  },
+  riskNote: {
+    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: spacing.md,
+  },
+  riskMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  riskMetaItem: {
+    width: '50%',
+    marginBottom: spacing.sm,
+  },
+  riskMetaLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  riskMetaValue: {
+    color: '#34D399',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  quoteSection: {
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  quoteSectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  quoteSectionSubtitle: {
+    color: '#64748B',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  quoteCard: {
+    marginBottom: spacing.sm,
+  },
+  quoteHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.xs,
   },
-  aiCardLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: spacing.xs },
-  aiLoadingText: { color: '#64748B', fontSize: 13, textAlign: 'center', marginTop: spacing.sm },
-
-  // Risk badge
-  riskBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)',
+  quoteCardLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: spacing.xs,
   },
-  riskBadgeText: { fontSize: 11, fontWeight: '700', marginLeft: 4 },
-
-  // AI score
-  aiScoreNumber: { fontSize: 42, fontWeight: '800', letterSpacing: -1 },
-  aiScoreCaption: { color: '#475569', fontSize: 12, lineHeight: 18, marginTop: 4 },
-
-  // Premium comparison
-  premiumCompareRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+  quoteLoadingText: {
+    color: '#64748B',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  quoteScore: {
+    fontSize: 42,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  quoteCaption: {
+    color: '#64748B',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  priceCompareRow: {
+    flexDirection: 'row',
     marginVertical: spacing.sm,
   },
-  premiumCol: { alignItems: 'center', flex: 1 },
-  premiumColLabel: { color: '#64748B', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 },
-  premiumColValueBase: { color: '#94A3B8', fontSize: 28, fontWeight: '700', textDecorationLine: 'line-through', textDecorationColor: '#475569' },
-  premiumColValueAI: { fontSize: 32, fontWeight: '800' },
-  premiumColSuffix: { color: '#475569', fontSize: 11, marginTop: 2 },
-  premiumArrow: { paddingHorizontal: spacing.md },
-  premiumDiffBadge: {
-    borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12,
-    alignItems: 'center', marginTop: spacing.xs,
+  priceColumn: {
+    flex: 1,
   },
-  premiumDiffText: { fontSize: 12, fontWeight: '600' },
-
-  // Zone status
+  priceColumnLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  priceBaseValue: {
+    color: '#94A3B8',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  priceQuotedValue: {
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  coverageRow: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
+  },
+  coverageStat: {
+    flex: 1,
+  },
+  coverageValue: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  coverageLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  deltaText: {
+    marginTop: spacing.sm,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   zoneStatusRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: spacing.xs,
+    gap: spacing.sm,
   },
-  zoneStatusItem: { flexDirection: 'row', alignItems: 'center' },
-  zoneStatusEmoji: { fontSize: 14, marginRight: 6 },
-  zoneStatusText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  zoneStatusPill: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  disruptionNote: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
-
-  // Error state
-  aiErrorIcon: { fontSize: 24, textAlign: 'center', marginBottom: spacing.xs },
-  aiErrorText: { color: '#64748B', fontSize: 13, textAlign: 'center' },
-
-  // Actions
-  backBtn: { marginTop: spacing.sm },
+  zoneValue: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  zoneNote: {
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.sm,
+  },
+  quoteErrorTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  quoteErrorText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  backButton: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
 });

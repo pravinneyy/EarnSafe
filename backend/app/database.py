@@ -3,3 +3,5 @@
 
 policies_db: list[dict] = []
 claims_db: list[dict] = []
+payment_quotes_db: list[dict] = []
+payment_orders_db: list[dict] = []
