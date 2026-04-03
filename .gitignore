@@ -7,3 +7,5 @@ __pycache__/
 .env
 backend/secrets.toml
 *.pyc
+.gradle
+.agent
