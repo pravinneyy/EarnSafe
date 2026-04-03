@@ -18,6 +18,7 @@ import { AppPill } from '../../../shared/components';
 import LiveMap from '../../../shared/components/LiveMap';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
+import WeatherMap from '../../../shared/components/WeatherMap';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -208,10 +209,8 @@ export default function HomeScreen({ route }) {
   }
 
   function animateToCoords(coords) {
-    mapRef.current?.animateToRegion(
-      { ...coords, latitudeDelta: 0.012, longitudeDelta: 0.012 },
-      600,
-    );
+    // With WebView, we just let the component re-render with new location props
+    console.log("Moving to:", coords);
   }
 
   useEffect(() => {

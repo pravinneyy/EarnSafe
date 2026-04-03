@@ -1,23 +1,32 @@
 import React from 'react';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+import { View, StyleSheet } from 'react-native';
+import { WebView } from 'react-native-webview';
 
-// Fix for marker icon visibility
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-let DefaultIcon = L.icon({ iconUrl: icon, shadowUrl: iconShadow });
-L.Marker.prototype.options.icon = DefaultIcon;
+const WeatherMap = ({ latitude = 13.0527, longitude = 80.2016 }) => {
+  const mapHtml = `
+    <html>
+      <head>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>#map { height: 100vh; width: 100vw; margin: 0; }</style>
+      </head>
+      <body style="margin:0;">
+        <div id="map"></div>
+        <script>
+          var map = L.map('map').setView([${latitude}, ${longitude}], 13);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+          L.marker([${latitude}, ${longitude}]).addTo(map);
+        </script>
+      </body>
+    </html>
+  `;
 
-const WeatherMap = ({ lat, lon }) => {
   return (
-    <div style={{ height: '250px', width: '100%', borderRadius: '12px', overflow: 'hidden' }}>
-      <MapContainer center={[lat, lon]} zoom={13} style={{ height: '100%', width: '100%' }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        <Marker position={[lat, lon]} />
-      </MapContainer>
-    </div>
+    <View style={styles.container}>
+      <WebView originWhitelist={['*']} source={{ html: mapHtml }} />
+    </View>
   );
 };
 
+const styles = StyleSheet.create({ container: { flex: 1, height: 300 } });
 export default WeatherMap;

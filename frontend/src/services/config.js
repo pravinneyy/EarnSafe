@@ -2,7 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 
 const DEFAULT_PORT = '8000';
 const INVALID_CLIENT_HOSTS = new Set(['0.0.0.0', '127.0.0.0']);
-const LAN_FALLBACK_HOST = '192.168.0.209';
+const LAN_FALLBACK_HOST = '192.168.1.139';
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, '');

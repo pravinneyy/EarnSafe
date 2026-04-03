@@ -1,49 +1,22 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
 
-export default function LiveMap({ location, firstName, zone }) {
+const LiveMap = ({ latitude = 13.0527, longitude = 80.2016 }) => {
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${longitude-0.01}%2C${latitude-0.01}%2C${longitude+0.01}%2C${latitude+0.01}&layer=mapnik&marker=${latitude}%2C${longitude}`;
+
   return (
-    <View style={styles.wrapper}>
-      <Text style={styles.title}>Map preview</Text>
-      <Text style={styles.body}>
-        Live maps are available in the native Android and iOS builds. The web view keeps the
-        location-aware weather and payment flow available.
-      </Text>
-      <Text style={styles.meta}>Zone: {zone || 'Unknown'}</Text>
-      {location && (
-        <Text style={styles.meta}>
-          {firstName}: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
-        </Text>
-      )}
-    </View>
+    <div style={{ width: '100%', height: '400px', overflow: 'hidden' }}>
+      <iframe
+        width="100%"
+        height="100%"
+        frameBorder="0"
+        scrolling="no"
+        marginHeight="0"
+        marginWidth="0"
+        src={mapUrl}
+        style={{ border: 'none' }}
+      ></iframe>
+    </div>
   );
-}
+};
 
-const styles = StyleSheet.create({
-  wrapper: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-    padding: 24,
-    backgroundColor: '#DCE7F3',
-  },
-  title: {
-    color: '#0F172A',
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  body: {
-    color: '#334155',
-    fontSize: 14,
-    lineHeight: 21,
-    maxWidth: 360,
-    marginBottom: 12,
-  },
-  meta: {
-    color: '#0F172A',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-});
+export default LiveMap;
