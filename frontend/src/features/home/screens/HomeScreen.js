@@ -314,42 +314,54 @@ export default function HomeScreen({ route }) {
 
       {/* ── BOTTOM OVERLAY: Weather Strip & Forecast ── */}
       <View style={styles.overlayBottom}>
+        {/* ── PHASE 2 ALERT BAR ── */}
+  {weather?.parametric_analysis?.is_disrupted && (
+    <View style={styles.alertContainer}>
+      <View style={[
+        styles.alertBar, 
+        { 
+          backgroundColor: isDark ? 'rgba(153, 27, 27, 0.95)' : 'rgba(254, 242, 242, 0.98)',
+          borderColor: '#EF4444' 
+        }
+      ]}>
+        <Text style={styles.alertEmoji}>⚠️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.alertTitle, { color: isDark ? '#FCA5A5' : '#B91C1C' }]}>
+            Disruption Detected
+          </Text>
+          <Text style={[styles.alertReason, { color: isDark ? '#FFFFFF' : '#7F1D1D' }]}>
+            {weather.parametric_analysis.disruption_reason}
+          </Text>
+        </View>
+        <AppPill label="Payout Active" tone="danger" />
+      </View>
+    </View>
+  )}
         <View style={[styles.weatherContainer, { backgroundColor: overlayBg }]}>
           
           {/* Top minimal strip (Click to expand) */}
-          <Pressable onPress={toggleExpand} style={styles.compactStrip}>
-            
-            <View style={styles.stripLeft}>
-               <Text style={{ fontSize: 16, marginRight: 6 }}>📍</Text>
-               <View>
-                 <Text style={[styles.zoneText, { color: overlayText }]}>{user?.delivery_zone || 'Locating…'}</Text>
-                 <Text style={[styles.expandHint, { color: overlayMuted }]}>
-                   {isExpanded ? 'Hide forecast 🔼' : 'Tap for hourly forecast 🔽'}
-                 </Text>
-               </View>
-            </View>
-
-            <View style={styles.stripRight}>
-               {/* Temp */}
-               <View style={styles.weatherStat}>
-                 <Text style={[styles.statVal, { color: '#F59E0B' }]}>
-                   {weather ? `${Math.round(weather.temperature)}°` : '—'}
-                 </Text>
-               </View>
-               <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
-               {/* AQI */}
-               <View style={styles.weatherStat}>
-                 <Text style={[styles.statVal, { color: aqiColor }]}>AQI {aqiDisplay}</Text>
-               </View>
-               <View style={[styles.weatherDivider, { backgroundColor: overlayMuted }]} />
-               {/* Condition */}
-               <View style={styles.weatherStat}>
-                 <Text style={{ fontSize: 16, marginRight: 4 }}>{weatherEmoji}</Text>
-                 <Text style={[styles.statVal, { color: '#3B82F6' }]}>{weatherCondition}</Text>
-               </View>
-            </View>
-
-          </Pressable>
+          {/* Top minimal strip (Click to expand) */}
+<Pressable onPress={toggleExpand} style={styles.compactStrip}>
+<View style={styles.stripLeft}>
+<Text style={{fontSize: 24}}>📍</Text>
+<View style={{flex: 1, marginLeft: 6}}>
+<Text numberOfLines={1} ellipsizeMode="tail" style={styles.zoneText}>{user?.delivery_zone || 'Locating…'}</Text>
+<Text style={styles.expandHint}>Tap for forecast</Text>
+</View>
+</View>
+<View style={styles.stripRight}>
+<Text style={[styles.statVal, {color: '#F59E0B'}]}>{weather ? `${Math.round(weather.temperature)}°` : '--'}</Text>
+<View style={styles.weatherDivider} />
+<Text style={[styles.statVal, {color: aqiColor}]}>AQI {aqiDisplay}</Text>
+<View style={styles.weatherDivider} />
+<View style={{flexDirection: 'row', alignItems: 'center'}}>
+<Text style={{fontSize: 16}}>{!!(weather?.parametric_analysis?.traffic_congestion > 70) ? '🔴' : '🟢'}</Text>
+<Text style={[styles.statVal, {color: (weather?.parametric_analysis?.traffic_congestion > 70) ? '#EF4444' : '#10B981', marginLeft: 2}]}>{weather?.parametric_analysis?.traffic_congestion ? `${Math.round(weather.parametric_analysis.traffic_congestion)}%` : '0%'}</Text>
+</View>
+<View style={styles.weatherDivider} />
+<Text style={{fontSize: 20}}>{weatherEmoji}</Text>
+</View>
+</Pressable>
 
           {/* Expanded Forecast Area */}
           {isExpanded && (
@@ -427,39 +439,60 @@ const styles = StyleSheet.create({
     bottom: spacing.sm, left: spacing.md, right: spacing.md,
     zIndex: 10,
   },
+  
   weatherContainer: {
-    borderRadius: radii.lg,
+    borderRadius: radii.xl, // More rounded corners for the larger strip
     overflow: 'hidden',
     ...shadows.elevated,
+    marginBottom: spacing.xs,
   },
-
-  /* Compact Strip */
+  /* --- STABLE & LARGE WEATHER STRIP --- */
+  /* --- PREMIUM LARGE WEATHER STRIP --- */
+  /* --- BULLETPROOF LAYOUT --- */
+  /* --- PREMIUM LARGE & WIDE STRIP --- */
   compactStrip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
+    paddingHorizontal: 16,
+    paddingVertical: 24, // TALLER BAR (as requested)
+    width: '100%',
+    minHeight: 80,       // Ensures it feels "big"
   },
   stripLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    flex: 1.5,           // Gives even MORE room to the location name
+    marginRight: 6,
   },
-  zoneText: { fontSize: 15, fontWeight: '700' },
-  expandHint: { fontSize: 11, marginTop: 2 },
-  
   stripRight: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    flexShrink: 0,       // Forces icons to stay on one line
+    gap: 4,              // Tighter gap to make room for city name
   },
-  weatherStat: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 6,
+  zoneText: { 
+    fontSize: 20,        // LARGE CITY NAME
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
   },
-  statVal: { fontSize: 14, fontWeight: '700' },
-  weatherDivider: { width: 1, height: 16, opacity: 0.3, marginHorizontal: 2 },
+  expandHint: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    marginTop: 2,
+  },
+  statVal: { 
+    fontSize: 13,        // COMPACT NUMBERS (needed to prevent truncation)
+    fontWeight: '900',
+  },
+  weatherDivider: { 
+    width: 1, 
+    height: 18, 
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 1,
+  },
 
   /* Forecast Area */
   forecastArea: {
@@ -491,4 +524,21 @@ const styles = StyleSheet.create({
   fcWindIcon: { fontSize: 10, color: '#94A3B8', marginBottom: 2 },
   fcWind: { fontSize: 11, marginBottom: 4 },
   fcHumid: { fontSize: 11, fontWeight: '600' },
+
+  alertContainer: {
+    marginBottom: spacing.xs,
+    width: '100%',
+  },
+  alertBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    ...shadows.md,
+  },
+  alertEmoji: { fontSize: 20, marginRight: spacing.sm },
+  alertTitle: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+  alertReason: { fontSize: 13, fontWeight: '600' },
 });
