@@ -92,11 +92,11 @@ If multiple devices are connected (emulator + phone), it will ask you to pick on
 ### If already installed (JS-only changes):
 Just open the app on your phone. It will connect to Metro **IF** your phone is on the same WiFi network as your PC.
 
-> **Important:** Update `frontend/.env` so the API URL uses your PC's current local IP:
+> **Important:** If Expo host detection does not work or you are testing a release build, set `frontend/.env` explicitly:
 > ```
-> EXPO_PUBLIC_API_BASE_URL=http://<YOUR_PC_IP>:8000
+> EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8000
 > ```
-> Find your IP with: `ipconfig` → look for "IPv4 Address" under your WiFi adapter.
+> Use `http://10.0.2.2:8000` for an Android emulator talking to a local backend, or your deployed backend URL for release builds.
 
 ---
 

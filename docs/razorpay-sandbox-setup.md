@@ -22,10 +22,10 @@ RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
 
 ## Frontend Environment
 
-If you are testing on a real device, create `frontend/.env` and point the app at your machine:
+If you want to override Expo host detection or point the app at a deployed backend, create `frontend/.env` and set:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=http://<your-lan-ip>:8000
+EXPO_PUBLIC_API_BASE_URL=https://api.example.com
 ```
 
 ## Native Build Requirement

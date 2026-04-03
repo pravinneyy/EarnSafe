@@ -331,10 +331,10 @@ RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
 RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
 ```
 
-For the frontend, create `frontend/.env` if you want to pin the backend URL instead of relying on Expo host detection:
+For the frontend, create `frontend/.env` only if you want to override Expo host detection or point the app at a deployed backend:
 
 ```
-EXPO_PUBLIC_API_BASE_URL=http://<your-lan-ip>:8000
+EXPO_PUBLIC_API_BASE_URL=https://api.example.com
 ```
 
 ### 3. Razorpay Sandbox Setup

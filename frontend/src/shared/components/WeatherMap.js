@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { getLeafletTileConfig } from '../utils/mapTiles';
 
 const WeatherMap = ({ latitude = 13.0527, longitude = 80.2016 }) => {
+  const { tileUrl, attribution, errorMessage, maxZoom, subdomains } = getLeafletTileConfig();
   const mapHtml = `
     <html>
       <head>
@@ -13,9 +15,20 @@ const WeatherMap = ({ latitude = 13.0527, longitude = 80.2016 }) => {
       <body style="margin:0;">
         <div id="map"></div>
         <script>
+          ${tileUrl
+            ? `
           var map = L.map('map').setView([${latitude}, ${longitude}], 13);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+          L.tileLayer(${JSON.stringify(tileUrl)}, {
+            attribution: ${JSON.stringify(attribution)},
+            maxZoom: ${maxZoom},
+            subdomains: ${JSON.stringify(subdomains)}
+          }).addTo(map);
           L.marker([${latitude}, ${longitude}]).addTo(map);
+          `
+            : `
+          document.getElementById('map').innerHTML =
+            '<div style="display:flex;height:100%;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:sans-serif;color:#0F172A;background:#F5F5F5;">${errorMessage}</div>';
+          `}
         </script>
       </body>
     </html>

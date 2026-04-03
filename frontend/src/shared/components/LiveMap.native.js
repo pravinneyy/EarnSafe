@@ -1,11 +1,13 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { getLeafletTileConfig } from '../utils/mapTiles';
 
 const LiveMap = ({ location, isDark }) => {
   // Use current location or default to Mumbai
   const lat = location?.latitude || 19.076;
   const lon = location?.longitude || 72.8777;
+  const { tileUrl, attribution, errorMessage, maxZoom, subdomains } = getLeafletTileConfig({ isDark });
 
   const mapHtml = `
     <!DOCTYPE html>
@@ -17,16 +19,25 @@ const LiveMap = ({ location, isDark }) => {
       <style>
         #map { height: 100vh; width: 100vw; margin: 0; padding: 0; }
         body { margin: 0; background-color: ${isDark ? '#080E1A' : '#f5f5f5'}; }
-        /* Simple Dark Mode Filter for OSM Tiles */
-        ${isDark ? '.leaflet-tile-container { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }' : ''}
       </style>
     </head>
     <body>
       <div id="map"></div>
       <script>
+        ${tileUrl
+          ? `
         var map = L.map('map', { zoomControl: false }).setView([${lat}, ${lon}], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.tileLayer(${JSON.stringify(tileUrl)}, {
+          attribution: ${JSON.stringify(attribution)},
+          maxZoom: ${maxZoom},
+          subdomains: ${JSON.stringify(subdomains)}
+        }).addTo(map);
         L.marker([${lat}, ${lon}]).addTo(map);
+        `
+          : `
+        document.getElementById('map').innerHTML =
+          '<div style="display:flex;height:100%;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:sans-serif;color:${isDark ? '#FFFFFF' : '#0F172A'};background:${isDark ? '#080E1A' : '#F5F5F5'};">${errorMessage}</div>';
+        `}
       </script>
     </body>
     </html>

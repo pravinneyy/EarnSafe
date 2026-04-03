@@ -1,0 +1,23 @@
+services:
+  - name: earnsafe-backend
+    type: web
+    runtime: python
+    rootDir: backend
+    plan: free
+    autoDeployTrigger: commit
+    healthCheckPath: /
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.8
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
