@@ -31,7 +31,7 @@ export async function request(path, options = {}) {
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the API at ${getApiBaseUrl()}. Start the backend on port 8000 and keep this device on the same network as your computer.`
+        `Unable to reach the API at ${getApiBaseUrl()}. Verify that the backend URL is correct and the service is reachable.`
       );
     }
 

@@ -21,3 +21,14 @@ services:
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
+  - name: earnsafe-web
+    type: web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npx expo export --platform web --clear
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: EXPO_PUBLIC_API_BASE_URL
+        value: https://earnsafe-backend.onrender.com
+      - key: EXPO_PUBLIC_TOMTOM_API_KEY
+        sync: false
