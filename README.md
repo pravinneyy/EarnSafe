@@ -111,6 +111,38 @@ Payout is based on lost income hours, but always capped by policy rules.
 
 This keeps the product aligned to lost wages instead of unrelated expenses.
 
+## Insurance Domain Grounding & Exclusions
+
+To address the actuarial viability of the product and prevent "moral hazard" (where users might try to game the system), EarnSafe implements a formal set of coverage exclusions and deductibles. 
+
+### 1. Mandatory Coverage Exclusions
+Even if a parametric trigger (e.g., Heavy Rain) is met, a claim will be **automatically denied** or **rejected** under the following conditions:
+
+*   **Pre-Existing Conditions (The "Red Alert" Rule):** Policies purchased *after* an official IMD (India Meteorological Department) Red Alert or Cyclone Warning has been issued for the zone are subject to a **12-hour cooling-off period**. No claims can be filed for events starting within this window.
+*   **Geographic Mismatch:** If the worker’s GPS and Cell-Tower data show they were outside their "Insured Delivery Zone" during the disruption, the claim is excluded.
+*   **Intent to Work:** If the worker was not "Active/Online" on their delivery platform (Swiggy/Zomato) for at least 30 minutes prior to the disruption event, the loss is considered "Voluntary Absence" rather than "External Disruption."
+*   **Asset-Level Failures:** Income loss caused by vehicle breakdown, lack of fuel, or personal mobile phone damage is strictly excluded. This is a "Parametric Weather/Civic" policy, not a "Comprehensive Asset" policy.
+*   **Behavioral Deactivation:** Claims are void if the rider was blocked or suspended by the delivery platform for performance or disciplinary reasons during the policy week.
+
+### 2. Actuarial Guardrails & Deductibles
+To ensure the liquidity of the insurance pool, we implement the following quantitative limits:
+
+| Term | Detail | Purpose |
+| :--- | :--- | :--- |
+| **Time Deductible** | 60 Minutes | The disruption must persist for 1 hour before the payout clock starts. Prevents "nuisance claims" for brief showers. |
+| **Trigger Stacking Cap** | ₹1,200 per event | If multiple triggers occur (e.g., Heat + AQI), the payout is capped to prevent over-indemnity. |
+| **Weekly Aggregate Limit** | Based on Plan (Max ₹4k) | Total payouts cannot exceed the weekly cap, regardless of the number of storms. |
+| **The 80% Rule** | Indemnity Limit | Payouts are designed to cover ~80% of estimated lost earnings (not 100%) to maintain the worker's incentive to return to work as soon as safely possible. |
+
+### 3. Evidence-Backed Thresholds (Quantifying Viability)
+Our thresholds are not arbitrary; they are mapped to the **IMD (India Meteorological Department) Impact-Based Forecast (IBF)** standards:
+*   **Rainfall:** Set at >20mm/hr because IMD classifies this as "Heavy," causing significant two-wheeler traction loss.
+*   **Heat:** Set at 42°C because the **National Disaster Management Authority (NDMA)** identifies this as the threshold where outdoor physical labor becomes a clinical health risk.
+*   **Wind:** Set at 60km/h as this is the standard safety cutoff for high-profile vehicles (like bikes with delivery boxes) to prevent toppling.
+
+### 4. Regulatory Alignment
+EarnSafe is designed to operate within the **IRDAI (Insurance Regulatory and Development Authority of India) Sandbox** guidelines for micro-insurance. By focusing on "Parametric Payouts," we reduce the administrative load (Loss Adjustment Expenses), allowing us to keep premiums as low as ₹29/week while maintaining a sustainable **Loss Ratio**.
+
 ## Parametric Triggers and Thresholds
 
 All triggers are verified against external data sources before a claim is initiated. Thresholds are set based on published government standards — not arbitrary values.
@@ -177,7 +209,7 @@ Because real insurer-grade data is not available in the hackathon, the model wil
 6. Export the model artifact.
 7. Load the model in the backend inference layer for scoring.
 
-## 🛡️ Adversarial Defense & Anti-Spoofing Strategy
+## Adversarial Defense & Anti-Spoofing Strategy
 
 In response to reports of advanced GPS-spoofing syndicates, our intelligence layer has officially deprecated basic GPS-reliance. We differentiate bad actors from genuinely stranded workers by analyzing corroborating, un-fakeable **"Sensor Fusion"** signals:
 
@@ -228,7 +260,7 @@ FastAPI Backend
     v
 Database + external data feeds
 ```
-## 🧠 How Our AI Actually Works
+## How Our AI Actually Works
 
 We didn’t want to just plug into a generic math formula. The reality of gig work is chaotic, so we built a dual-model Python backend that actually understands context—like bad weather, high-risk zones, and local disruptions—in real time. 
 
@@ -264,6 +296,36 @@ If we are going to offer instant claim payouts, we have to protect the system fr
 
 ### 3. The "Bouncer" (Data Pipeline & FastAPI)
 You can never trust user input to be perfectly typed. We built a high-speed **FastAPI** backend that acts as our data bouncer. Before any information even touches the machine learning models, our pipeline intercepts it, strips out accidental spaces, and fixes capitalization (so a messy `"  anna nagar "` instantly becomes a clean `"Anna Nagar"`). This keeps the AI fast, accurate, and crash-free.
+
+## Integrated APIs & Evidence-Based Logic
+
+EarnSafe employs a **Dual-Source Data Strategy** to ensure every "Trigger Decision" is mathematically validated and fraud-resistant. We cross-reference multiple meteorological providers to maintain a "High-Reliability" claim pipeline.
+
+### 1. Data Source Inventory
+
+| Service | Architecture Layer | Specific Usage | Data Type |
+| :--- | :--- | :--- | :--- |
+| **Open-Meteo API** | `ai/ml/` | **Risk Prediction:** Feeds the CatBoost Risk Engine. | Hourly Forecasts |
+| **Open-Meteo AQI** | `ai/ml/` | **Health Triggers:** Monitors hazardous PM2.5/PM10 levels. | PM2.5, PM10, Dust |
+| **OpenWeather API**| `backend/` | **Primary Truth Source:** Final validation for payout. | Historical Actuals |
+| **TomTom API** | Backend/UI | **Geofencing:** Reverse geocoding of worker zones. | Geo-coordinates |
+| **Razorpay** | Payments | **Premium Lifecycle:** Sandbox order & verification. | Webhook/API |
+| **Supabase** | DB/Auth | **Audit Trail:** Source of truth for policies/claims. | Relational Data |
+
+### 2. Evidence-Backed Model Decisions
+Our thresholds are not arbitrary; they are mapped to **Official National Safety Standards** to ensure actuarial viability:
+
+*   **Meteorological Evidence (Rain >20mm/hr):** Sourced via **OpenWeather**; mapped to the **IMD (India Meteorological Department)** "Heavy Rain" Impact-Based Forecast (IBF) for urban disruptions.
+*   **Thermal Evidence (Heat >42°C):** Sourced via **Open-Meteo**; mapped to the **NDMA (National Disaster Management Authority)** safety protocols for outdoor physical labor.
+*   **Environmental Evidence (PM2.5 > 75):** Sourced via **Open-Meteo AQI**; mapped to the **CPCB (Central Pollution Control Board)** "Poor" category health advisory.
+
+### 3. Redundancy & "Sensor Fusion" Logic
+To eliminate a "Single Point of Failure," the system performs a **Triple-Check** before approving any payout:
+1.  **Meteorological Check:** Did both OpenWeather and Open-Meteo report a threshold violation?
+2.  **Location Check:** Does the **TomTom API** verify the worker was physically within the affected geofence?
+3.  **Fraud Check:** Does the **Isolation Forest** model flag the claim data as an anomaly compared to local historical patterns?
+
+By linking these APIs to official government standards, we provide the **quantitative depth** required for institutional insurance grounding.
 
 ## Tech Stack
 
