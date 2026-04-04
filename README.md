@@ -253,8 +253,8 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 
 ### Current trail-phase stack
 
-- Frontend: React Native with Expo + react-native-maps (Integrated)
-- Navigation: React Navigation
+- Frontend: React Native with Expo +   OpenStreetMap (OSM)  
+- Navigation: WebView + Leafet.js
 - Backend: FastAPI
 - Validation: Pydantic
 - Server: Uvicorn
@@ -266,7 +266,7 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
-- Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
+- Trigger feeds: TomTom api , openweather api , aqi api , mock apis for civic alerts
 - Dashboard: simple web admin and analytics panel
 
 ## Development Plan
