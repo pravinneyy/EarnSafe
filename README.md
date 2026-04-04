@@ -111,18 +111,20 @@ Payout is based on lost income hours, but always capped by policy rules.
 
 This keeps the product aligned to lost wages instead of unrelated expenses.
 
-## Parametric Triggers
+## Parametric Triggers and Thresholds
 
-The use case asks for automated disruption triggers. For this persona, the core triggers are:
+All triggers are verified against external data sources before a claim is initiated. Thresholds are set based on published government standards — not arbitrary values.
 
-| Trigger                       | Example source                      | Why it matters                                       | Status               |
-| ----------------------------- | ----------------------------------- | ---------------------------------------------------- | -------------------- |
-| Heavy rainfall                | OpenWeather API                     | Riders cannot safely complete deliveries             | Implemented          |
-| Flood or waterlogging alert   | Civic or municipal alert feed       | Pickup and drop routes become unusable               | Implemented          |
-| Extreme heat                  | OpenWeather API heat index          | Outdoor work becomes unsafe or restricted            | Implemented          |
-| Severe AQI                    | AQI API                             | Health-sensitive outdoor exposure reduces shift time | Implemented          |
-| Curfew or sudden zone closure | Mock civic feed or admin event feed | Workers cannot access the delivery zone              | Planned for Phase 2  |
+| Trigger | Data Source | Activation Threshold | Evidence Basis | Fixed Payout | Status |
+| ------- | ----------- | -------------------- | -------------- | ------------ | ------ |
+| Heavy rainfall | Open-Meteo Weather API | Rain > 20mm/hr | IMD standard for heavy rain advisory affecting outdoor workers | Rs. 500 | Implemented |
+| Severe waterlogging | Open-Meteo + mock civic feed | Rain > 50mm in flood-risk zone | IMD classification for very heavy rainfall causing urban flooding | Rs. 800 | Implemented |
+| Extreme heat | Open-Meteo Weather API | Temperature > 42°C or heat index > 45°C | IMD heatwave threshold for Tamil Nadu — declared dangerous for outdoor labour | Rs. 400 | Implemented |
+| Hazardous AQI | Open-Meteo Air Quality API | PM2.5 > 75 µg/m³ | CPCB Poor category threshold — health advisory for outdoor exposure | Rs. 300 | Implemented |
+| Dangerous wind | Open-Meteo Weather API | Wind > 60 km/h | IMD cyclonic storm advisory threshold for two-wheeler safety | Rs. 350 | Implemented |
+| Curfew or sudden zone closure | Mock civic feed or admin event feed | Admin-issued zone closure flag active | Workers cannot legally access pickup or drop zones | Rs. 500 | Planned for Phase 3 |
 
+Total payout is capped at Rs. 1200 per event to prevent trigger stacking abuse. Thresholds are configurable per city zone. Chennai zones use monsoon-adjusted thresholds during June to November.
 ## AI and ML Strategy
 
 ### 1. Risk assessment and premium intelligence
@@ -232,12 +234,26 @@ We didn’t want to just plug into a generic math formula. The reality of gig wo
 
 Here is what is happening under the hood:
 
-### 1. The Dynamic Pricing Engine (CatBoost)
-Insurance shouldn't cost the same on a sunny Tuesday as it does during a monsoon. To fix this, we built our live pricing model using **CatBoost**.
+### 1. The Dynamic Pricing Engine — CatBoost
 
-* **Why we chose it:** Delivery zones and platform names are text-heavy. CatBoost is notoriously good at handling messy, categorical data right out of the box without breaking our pipeline.
-* **How it thinks:** When a rider opens the app, the AI instantly looks at their specific zone, their gig platform, and the live weather forecast. It even factors in active local chaos (like severe waterlogging or strikes).
-* **The Result:** Instead of charging a flat rate, the model generates a real-time risk multiplier. This scales smoothly with the user's chosen coverage tier to give them a perfectly tailored, fair weekly premium.
+Insurance should not cost the same on a sunny Tuesday as it does during a monsoon. The CatBoost model solves this.
+
+**Model details:**
+- Type: Gradient Boosted Decision Tree (CatBoost Classifier)
+- Trained on: 600 rows of synthetic Chennai food delivery data covering realistic monsoon, summer, and dry season patterns
+- Data basis: synthetic profiles modelled after India Meteorological Department (IMD) historical rainfall records for Chennai, CPCB air quality index standards, and IMD heatwave definitions for Tamil Nadu
+- Features: zone, month, rainfall mm, temperature °C, PM2.5 AQI, wind speed KPH, external disruption label
+- Output: risk probability (0.0 to 1.0) used to adjust weekly premium
+- Premium formula: `base_rate x (1 + risk_probability)`
+
+CatBoost was chosen because delivery zones and platform names are text-heavy categorical data. CatBoost handles mixed feature types well without additional preprocessing and produces calibrated probability scores that translate directly into premium adjustments.
+
+The model charges less per week if the worker operates in a zone historically safe from waterlogging. OMR gets a lower premium than Velachery during monsoon season because IMD historical data shows significantly lower flood incidence in that zone.
+
+**Plan premium ranges with AI adjustment:**
+- Basic: Rs. 29 base → up to Rs. 58 per week
+- Standard: Rs. 49 base → up to Rs. 98 per week
+- Pro: Rs. 89 base → up to Rs. 178 per week
 
 ### 2. The Trust Engine: Fraud Detection (Isolation Forest)
 If we are going to offer instant claim payouts, we have to protect the system from bad actors automatically. 
@@ -261,12 +277,12 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 - Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
 - Monitoring: Openweather API (AQI + Weather) (Integrated)
 - Payments: Razorpay sandbox order creation + signature verification
+- ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
+- Trigger feeds: TomTom api , openweather api , aqi api , mock apis for civic alerts
 
 ### Planned additions for later phases
 
-- ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
-- Trigger feeds: TomTom api , openweather api , aqi api , mock apis for civic alerts
 - Dashboard: simple web admin and analytics panel
 
 ## Development Plan
@@ -279,15 +295,17 @@ What already exists:
 
 - a skeleton of frontend and backend
 - basic file structure
+- CatBoost-based AI risk scoring
+- parametric trigger monitoring
+- analytics dashboard
+- ML-assisted fraud detection
+- runnable apk file
 
 What will be added to fully match the use case:
 
 - strict persona-driven experience for food delivery workers
 - automated parametric trigger monitoring
-- CatBoost-based AI risk scoring
-- ML-assisted fraud detection
 - payout simulation
-- persistent storage and analytics dashboard
 
 ## Summary
 
@@ -321,7 +339,7 @@ This installs FastAPI, Uvicorn, CatBoost, scikit-learn, pandas, numpy, and all o
 
 ### 2. Set Up Environment Variables
 
-Create a `.env` file in the project root with:
+Create a `.env` file in the backend folder of the project with:
 
 ```
 OPENWEATHER_API_KEY=<your_openweather_api_key>
@@ -329,12 +347,21 @@ SUPABASE_URL=<your_supabase_project_url>
 SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
 RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
 RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
+GOOGLE_ANDROID_CLIENT_ID=<your_google_android_client_id>
+TOMTOM_API_KEY=<your_tomtom_api_key>
 ```
 
-For the frontend, create `frontend/.env` only if you want to override Expo host detection or point the app at a deployed backend:
+For the frontend, create `frontend/.env` :
 
 ```
-EXPO_PUBLIC_API_BASE_URL=https://api.example.com
+OPENWEATHER_API_KEY=<your_openweather_api_key>
+SUPABASE_URL=<your_supabase_project_url>
+SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
+RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
+RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
+EXPO_PUBLIC_API_BASE_URL=<your_backend_base_url>
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<your_google_android_client_id>
+EXPO_PUBLIC_TOMTOM_API_KEY=<your_tomtom_api_key>
 ```
 
 ### 3. Razorpay Sandbox Setup
