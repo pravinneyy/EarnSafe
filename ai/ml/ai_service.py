@@ -182,14 +182,14 @@ _DEFAULT_ZONE_MAP = {
 # ─────────────────────────────────────────────────────────────────
 # LOAD MODELS
 # ─────────────────────────────────────────────────────────────────
-print("⚡ Booting EarnSafe AI Models...")
+print("Booting EarnSafe AI Models...")
 
 risk_model = CatBoostClassifier()
 if _RISK_MODEL_PATH.exists():
     risk_model.load_model(str(_RISK_MODEL_PATH))
-    print(f"✅ Risk model loaded from {_RISK_MODEL_PATH}")
+    print(f"Risk model loaded from {_RISK_MODEL_PATH}")
 else:
-    logger.warning("risk_model.cbm not found — using fallback. Run train_models.py!")
+    logger.warning("risk_model.cbm not found - using fallback. Run train_models.py!")
     _fb = pd.DataFrame([
         {"Zone": "Velachery",  "Delivery_Persona": "Food", "Month": 8,
          "Forecast_Rain_mm": 60, "Forecast_Temp_C": 28, "AQI_PM25": 40,
@@ -215,10 +215,10 @@ fraud_model = None
 if _FRAUD_MODEL_PATH.exists():
     with open(_FRAUD_MODEL_PATH, "rb") as f:
         fraud_model = pickle.load(f)
-    print(f"✅ Fraud model loaded from {_FRAUD_MODEL_PATH}")
+    print(f"Fraud model loaded from {_FRAUD_MODEL_PATH}")
 else:
     from sklearn.ensemble import IsolationForest
-    logger.warning("fraud_model.pkl not found — using fallback.")
+    logger.warning("fraud_model.pkl not found - using fallback.")
     fraud_model = IsolationForest(contamination=0.10, random_state=42)
     fraud_model.fit(np.array([[40.0, 4.0, 0.92], [0.5, 6.0, 0.10],
                                [30.0, 3.0, 0.88], [55.0, 5.0, 0.95]]))
@@ -227,9 +227,9 @@ zone_risk_map: dict = _DEFAULT_ZONE_MAP
 if _ZONE_MAP_PATH.exists():
     with open(_ZONE_MAP_PATH, "rb") as f:
         zone_risk_map = pickle.load(f)
-    print(f"✅ Zone risk map loaded ({len(zone_risk_map)} zones)")
+    print(f"Zone risk map loaded ({len(zone_risk_map)} zones)")
 
-print("✅ EarnSafe AI Engine ready.\n")
+print("EarnSafe AI Engine ready.\n")
 
 _TIER_BASE_RATES = {"basic": 29.0, "standard": 49.0, "pro": 89.0}
 

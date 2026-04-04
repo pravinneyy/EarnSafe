@@ -3,16 +3,18 @@ from fastapi import APIRouter, HTTPException, Query
 from app.database import policies_db
 from app.schemas import PolicyCreate, PolicyResponse
 from app.services.premium_service import calculate_weekly_premium
-from app.services.ai_service import (
-    predict_risk,
-    predict_risk_with_weather,
-    get_live_risk_data,
-    get_mock_scenario,
-    evaluate_triggers,
+from app.services.user_store import SupabaseConfigError, SupabaseRequestError, fetch_user_by_id
+
+from .ai_service import (
     MOCK_SCENARIOS,
     TRIGGERS,
+    evaluate_triggers,
+    get_live_risk_data,
+    get_mock_scenario,
+    predict_risk,
+    predict_risk_with_weather,
+    zone_risk_map,
 )
-from app.services.user_store import SupabaseConfigError, SupabaseRequestError, fetch_user_by_id
 
 router = APIRouter(prefix="/policy", tags=["Policy"])
 
@@ -71,7 +73,6 @@ def simulate_premium(
     Simulate AI premium under custom weather conditions.
     Shows triggers fired + fixed payouts + dynamic premium.
     """
-    from app.services.ai_service import zone_risk_map
     zone_profile = zone_risk_map.get(zone.strip().title(), {"flood": 0.5, "heat": 0.6, "aqi": 0.5})
 
     triggers = evaluate_triggers(
