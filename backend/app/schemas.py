@@ -88,6 +88,10 @@ class PolicyResponse(BaseModel):
     status: str
 
 
+class UserSessionResponse(UserResponse):
+    active_policy: Optional[PolicyResponse] = None
+
+
 class PaymentQuoteCreate(BaseModel):
     user_id: int
     plan_tier: PlanTier

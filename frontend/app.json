@@ -2,7 +2,7 @@
   "expo": {
     "name": "Insurance App",
     "slug": "insurance-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "",
     "userInterfaceStyle": "light",

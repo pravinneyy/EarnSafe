@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from app.schemas import UserCreate, UserLogin, UserResponse
+from app.database import policies_db
+from app.schemas import UserCreate, UserLogin, UserResponse, UserSessionResponse
 from app.security import hash_password, verify_password
 from app.services.user_store import (
     SupabaseConfigError,
@@ -68,7 +69,7 @@ def register_user(user: UserCreate):
         _raise_store_error(error)
 
 
-@router.post("/login", response_model=UserResponse)
+@router.post("/login", response_model=UserSessionResponse)
 def login_user(credentials: UserLogin):
     try:
         user = find_user_by_username(credentials.username, include_password_hash=True)
@@ -78,7 +79,19 @@ def login_user(credentials: UserLogin):
     if not user or not verify_password(credentials.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    return serialize_public_user(user)
+    public_user = serialize_public_user(user)
+    active_policy = next(
+        (
+            policy
+            for policy in policies_db
+            if policy["user_id"] == public_user["id"] and policy["status"] == "active"
+        ),
+        None,
+    )
+    return {
+        **public_user,
+        "active_policy": active_policy,
+    }
 
 
 @router.get("/{user_id}", response_model=UserResponse)

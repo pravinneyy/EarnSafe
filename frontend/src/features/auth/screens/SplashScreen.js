@@ -25,17 +25,19 @@ export default function SplashScreen({ navigation }) {
   const dotPulse = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
-    Animated.sequence([
+    let cancelled = false;
+
+    const introAnimation = Animated.sequence([
       // 1. "Earn" slides in from left
       Animated.parallel([
         Animated.timing(earnOpacity, {
           toValue: 1,
-          duration: 450,
+          duration: 240,
           useNativeDriver: true,
         }),
         Animated.timing(earnTranslateX, {
           toValue: 0,
-          duration: 450,
+          duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -44,12 +46,12 @@ export default function SplashScreen({ navigation }) {
       Animated.parallel([
         Animated.timing(sureOpacity, {
           toValue: 1,
-          duration: 450,
+          duration: 240,
           useNativeDriver: true,
         }),
         Animated.timing(sureTranslateX, {
           toValue: 0,
-          duration: 450,
+          duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -64,7 +66,7 @@ export default function SplashScreen({ navigation }) {
         }),
         Animated.timing(glowWidth, {
           toValue: 1,
-          duration: 500,
+          duration: 280,
           easing: Easing.out(Easing.quad),
           useNativeDriver: false,
         }),
@@ -73,20 +75,26 @@ export default function SplashScreen({ navigation }) {
       Animated.parallel([
         Animated.timing(taglineOpacity, {
           toValue: 1,
-          duration: 400,
+          duration: 220,
           useNativeDriver: true,
         }),
         Animated.timing(taglineTranslateY, {
           toValue: 0,
-          duration: 400,
+          duration: 220,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
       ]),
-    ]).start();
+    ]);
+
+    introAnimation.start(({ finished }) => {
+      if (finished && !cancelled) {
+        navigation.replace('ExistingUser');
+      }
+    });
 
     // Dot pulse loop
-    Animated.loop(
+    const pulseAnimation = Animated.loop(
       Animated.sequence([
         Animated.timing(dotPulse, {
           toValue: 1,
@@ -99,13 +107,14 @@ export default function SplashScreen({ navigation }) {
           useNativeDriver: true,
         }),
       ]),
-    ).start();
+    );
+    pulseAnimation.start();
 
-    const timer = setTimeout(() => {
-      navigation.replace('ExistingUser');
-    }, 2800);
-
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      introAnimation.stop();
+      pulseAnimation.stop();
+    };
   }, []);
 
   const glowInterpolated = glowWidth.interpolate({

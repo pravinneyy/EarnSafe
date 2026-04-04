@@ -1,7 +1,9 @@
 import { NativeModules, Platform } from 'react-native';
 
 const DEFAULT_PORT = '8000';
+const PRODUCTION_API_BASE_URL = 'https://earnsafe-backend.onrender.com';
 const INVALID_CLIENT_HOSTS = new Set(['0.0.0.0', '127.0.0.0', '127.0.0.1', 'localhost', '::1']);
+let cachedApiBaseUrl = null;
 
 function getLocalDevHost() {
   return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
@@ -41,15 +43,27 @@ function getBundlerHost() {
 }
 
 export function getApiBaseUrl() {
+  if (cachedApiBaseUrl) {
+    return cachedApiBaseUrl;
+  }
+
   const explicitBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
   if (explicitBaseUrl) {
-    return explicitBaseUrl;
+    cachedApiBaseUrl = explicitBaseUrl;
+    return cachedApiBaseUrl;
   }
 
-  const bundlerHost = getBundlerHost();
-  if (bundlerHost) {
-    return `http://${bundlerHost}:${DEFAULT_PORT}`;
+  if (__DEV__) {
+    const bundlerHost = getBundlerHost();
+    if (bundlerHost) {
+      cachedApiBaseUrl = `http://${bundlerHost}:${DEFAULT_PORT}`;
+      return cachedApiBaseUrl;
+    }
+
+    cachedApiBaseUrl = `http://${getLocalDevHost()}:${DEFAULT_PORT}`;
+    return cachedApiBaseUrl;
   }
 
-  return `http://${getLocalDevHost()}:${DEFAULT_PORT}`;
+  cachedApiBaseUrl = PRODUCTION_API_BASE_URL;
+  return cachedApiBaseUrl;
 }

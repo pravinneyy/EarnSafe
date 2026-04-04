@@ -1,8 +1,12 @@
 import { getApiBaseUrl } from './config';
 
+const REQUEST_TIMEOUT_MS = 10000;
+
 export async function request(path, options = {}) {
-  const { method = 'GET', body, headers = {} } = options;
+  const { method = 'GET', body, headers = {}, timeoutMs = REQUEST_TIMEOUT_MS } = options;
   const url = `${getApiBaseUrl()}${path}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -12,6 +16,7 @@ export async function request(path, options = {}) {
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
 
     const contentType = response.headers.get('content-type') || '';
@@ -29,6 +34,10 @@ export async function request(path, options = {}) {
 
     return payload;
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.`);
+    }
+
     if (error instanceof TypeError) {
       throw new Error(
         `Unable to reach the API at ${getApiBaseUrl()}. Verify that the backend URL is correct and the service is reachable.`
@@ -36,5 +45,7 @@ export async function request(path, options = {}) {
     }
 
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

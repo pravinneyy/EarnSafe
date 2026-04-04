@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../../shared/theme/ThemeContext';
-import { getUserPolicies, loginUser } from '../../../services/api';
+import { loginUser } from '../../../services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,12 +28,11 @@ export default function ExistingUserScreen({ navigation }) {
     if (!username || !password) return;
     setLoading(true);
     try {
-      const user = await loginUser({
+      const session = await loginUser({
         username: username.trim().toLowerCase(),
         password,
       });
-      const policies = await getUserPolicies(user.id);
-      const activePolicy = policies.find(p => p.status === 'active');
+      const { active_policy: activePolicy, ...user } = session;
 
       if (activePolicy) {
         navigation.reset({
