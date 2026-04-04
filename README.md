@@ -266,7 +266,7 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 
 - ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
 - Data store: PostgreSQL or Supabase
-- Trigger feeds: mapbox api , openweather api , aqi api , mock apis for civic alerts
+- Trigger feeds: TomTom api , openweather api , aqi api , mock apis for civic alerts
 - Dashboard: simple web admin and analytics panel
 
 ## Development Plan
