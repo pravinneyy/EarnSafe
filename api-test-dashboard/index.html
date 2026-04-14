@@ -140,81 +140,83 @@
 
         // 4. CORE FUNCTION
         async function analyzeConditions() {
-            const resultsPanel = document.getElementById('results-panel');
-            const mlStatus = document.getElementById('ml-status');
-            const claimBox = document.getElementById('claim-box');
-            const useReal = document.getElementById('real-weather-toggle').checked;
+    const resultsPanel = document.getElementById('results-panel');
+    const mlStatus = document.getElementById('ml-status');
+    const claimBox = document.getElementById('claim-box');
+    const useReal = document.getElementById('real-weather-toggle').checked;
 
-            resultsPanel.classList.remove('hidden');
-            mlStatus.innerHTML = "Computing Risk Score...";
-            claimBox.innerHTML = "Processing...";
+    resultsPanel.classList.remove('hidden');
+    mlStatus.innerHTML = "<p class='animate-pulse text-blue-500'>Running CatBoost Engine...</p>";
+    claimBox.innerHTML = "Calculating Payout...";
 
-            // Construct Parameters
-            const params = {
-                lat: document.getElementById('lat').value,
-                lon: document.getElementById('lon').value
-            };
+    const params = {
+        lat: document.getElementById('lat').value,
+        lon: document.getElementById('lon').value
+    };
 
-            // ONLY add slider values if "Use Real Weather" is NOT checked
-            if (!useReal) {
-                params.temperature = document.getElementById('temp').value;
-                params.aqi = document.getElementById('aqi').value;
-                params.rainfall = document.getElementById('rain').value;
-            }
+    if (!useReal) {
+        params.temperature = document.getElementById('temp').value;
+        params.aqi = document.getElementById('aqi').value;
+        params.rainfall = document.getElementById('rain').value;
+    }
 
-            try {
-                const query = new URLSearchParams(params).toString();
-                const response = await fetch(`${API_BASE_URL}/weather/?${query}`);
-                
-                if (!response.ok) throw new Error("Connection Error");
-                
-                const data = await response.json();
-                const analysis = data.parametric_analysis || {};
-                const isDisrupted = analysis.is_disrupted;
+    try {
+        const query = new URLSearchParams(params).toString();
+        const response = await fetch(`${API_BASE_URL}/weather/?${query}`);
+        const data = await response.json();
 
-                mlStatus.innerHTML = `
-                    <div class="flex justify-between border-b pb-2">
-                        <span>Zone Risk Score:</span>
-                        <span class="font-bold text-gray-800">${data.risk_score || (isDisrupted ? 0.95 : 0.05)}</span>
-                    </div>
-                    <div class="flex justify-between border-b pb-2">
-                        <span>Disruption Detected:</span>
-                        <span class="${isDisrupted ? 'text-red-600 font-bold' : 'text-green-600'}">${isDisrupted ? 'YES' : 'NO'}</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Analysis Source:</span>
-                        <span class="text-blue-500">${useReal ? 'Real API' : 'Simulated'}</span>
-                    </div>
-                `;
-
-                if (isDisrupted) {
-    // 1. Calculate payout based on the factor from the backend (default to 1.0 if missing)
-    const factor = analysis.payout_factor || 1.0;
-    const baseAmount = 500;
-    const finalPayout = (baseAmount * factor).toFixed(2);
-
-    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
-    claimBox.innerHTML = `
-        <div class="text-5xl mb-2">💰</div>
-        <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
-        <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${analysis.reason || 'Weather disruption detected'}</p>
+        // 1. Get the data from your backend structure
+        const analysis = data.parametric_analysis || {};
+        const isDisrupted = analysis.is_disrupted;
         
-        <!-- Now this value changes dynamically! -->
-        <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ ${finalPayout} INITIATED</div>
+        // 2. DYNAMIC PAYOUT CALCULATION
+        const baseAmount = 500;
+        const factor = analysis.payout_factor || 1.0; // Use the multiplier from Python
+        const finalPayout = (baseAmount * factor).toFixed(2);
         
-        <p class="text-[9px] text-gray-400 mt-2 italic">Calculated at ${factor * 100}% coverage</p>
-    `;
-}
-                 else {
-                    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border border-gray-100 bg-gray-50 opacity-60";
-                    claimBox.innerHTML = `<h4 class="text-gray-400 font-bold uppercase tracking-widest text-center">Safe Conditions</h4>`;
-                }
+        // 3. GET DYNAMIC REASON
+        const reasonText = analysis.disruption_reason || "Weather Disruption Detected";
 
-            } catch (err) {
-                mlStatus.innerHTML = `<span class="text-red-500 font-bold">Error connecting to local server.</span>`;
-                claimBox.innerHTML = "Check VS Code Terminal";
-            }
+        // Update ML Response Panel
+        mlStatus.innerHTML = `
+            <div class="flex justify-between border-b pb-2">
+                <span>Zone Risk (CatBoost):</span>
+                <span class="font-bold text-gray-800">${data.risk_score || (isDisrupted ? 0.95 : 0.05)}</span>
+            </div>
+            <div class="flex justify-between border-b pb-2">
+                <span>Disruption Detected:</span>
+                <span class="${isDisrupted ? 'text-red-600 font-bold' : 'text-green-600'}">${isDisrupted ? 'YES' : 'NO'}</span>
+            </div>
+            <div class="flex justify-between">
+                <span>Analysis Source:</span>
+                <span class="text-blue-500">${useReal ? 'Real API' : 'Simulated'}</span>
+            </div>
+        `;
+
+        if (isDisrupted) {
+            claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
+            claimBox.innerHTML = `
+                <div class="text-5xl mb-2">💰</div>
+                <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
+                
+                <!-- This now shows the actual reason from your Python code -->
+                <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${reasonText}</p>
+                
+                <!-- This now calculates based on the payout_factor (500, 400, or 300) -->
+                <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ ${finalPayout} INITIATED</div>
+                
+                <p class="text-[9px] text-gray-400 mt-2 italic text-center">Calculated at ${factor * 100}% of daily average income</p>
+            `;
+        } else {
+            claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border border-gray-100 bg-gray-50 opacity-60";
+            claimBox.innerHTML = `<h4 class="text-gray-400 font-bold uppercase tracking-widest text-center">Safe Conditions</h4>`;
         }
+
+    } catch (err) {
+        mlStatus.innerHTML = `<span class="text-red-500 font-bold">Error connecting to server.</span>`;
+        claimBox.innerHTML = "Check Terminal";
+    }
+}
 
     </script>
 </body>
