@@ -1,8 +1,27 @@
 from fastapi import APIRouter, HTTPException
 from app.services.weather_service import get_weather, get_forecast
 from app.services.traffic_service import get_traffic_status
+from fastapi import APIRouter, Query
+from app.services import weather_service
+from typing import Optional
 
 router = APIRouter(prefix="/weather", tags=["Weather"])
+
+@router.get("/")
+def get_weather_data(
+    lat: float, 
+    lon: float, 
+    temperature: Optional[float] = Query(None), 
+    aqi: Optional[int] = Query(None), 
+    rainfall: Optional[float] = Query(None)
+):
+    
+    return weather_service.get_weather(
+        lat, lon, 
+        m_temp=temperature, 
+        m_aqi=aqi, 
+        m_rain=rainfall
+    )
 
 @router.get("/")
 def fetch_hyperlocal_status(lat: float, lon: float):

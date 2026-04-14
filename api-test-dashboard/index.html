@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EarnSafe | ML Parametric Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 350px; border-radius: 12px; z-index: 1; border: 1px solid #e2e8f0; }
+        .gradient-bg { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); }
+        input[type=range] { accent-color: #3b82f6; }
+        .disabled-group { opacity: 0.3; pointer-events: none; transition: all 0.3s; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white p-6 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold tracking-tight">🛡️ EarnSafe <span class="text-sm font-normal opacity-75">ML Parametric Test</span></h1>
+            <div id="connection-status" class="bg-green-500/20 border border-green-500 text-green-100 px-3 py-1 rounded-full text-xs">
+                System Active
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        <!-- Section 1: Map -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 class="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">
+                📍 1. Pinpoint Incident Zone
+            </h2>
+            <div id="map" class="mb-4"></div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] text-gray-400 uppercase font-black">Latitude</label>
+                    <input type="text" id="lat" class="w-full bg-gray-50 p-2 rounded border font-mono text-sm" readonly value="12.904182">
+                </div>
+                <div>
+                    <label class="text-[10px] text-gray-400 uppercase font-black">Longitude</label>
+                    <input type="text" id="lon" class="w-full bg-gray-50 p-2 rounded border font-mono text-sm" readonly value="80.102692">
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Parameters -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 class="text-lg font-semibold mb-4 text-gray-800 flex items-center gap-2">🧪 2. Simulate Parameters</h2>
+            
+            <!-- Real Weather Toggle -->
+            <div class="flex items-center gap-3 mb-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                <input type="checkbox" id="real-weather-toggle" class="w-5 h-5 cursor-pointer">
+                <label for="real-weather-toggle" class="text-sm font-bold text-blue-800 cursor-pointer">
+                    USE REAL LIVE WEATHER (Ignore Sliders)
+                </label>
+            </div>
+
+            <div id="sliders-container" class="space-y-6 transition-all">
+                <!-- Temperature -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-600">Temperature</label>
+                        <span id="temp-val" class="font-bold text-blue-600">25°C</span>
+                    </div>
+                    <input type="range" id="temp" min="10" max="55" value="25" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- AQI -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-600">Air Quality Index (AQI)</label>
+                        <span id="aqi-val" class="font-bold text-orange-600">1</span>
+                    </div>
+                    <input type="range" id="aqi" min="1" max="5" value="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Rainfall -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-600">Rainfall Simulation</label>
+                        <span id="rain-val" class="font-bold text-indigo-600">0 mm</span>
+                    </div>
+                    <input type="range" id="rain" min="0" max="100" value="0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <button onclick="analyzeConditions()" class="w-full mt-8 gradient-bg text-white font-black py-4 rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md tracking-widest">
+                RUN ML DISRUPTION ANALYSIS
+            </button>
+        </section>
+
+        <!-- Results Panel -->
+        <section id="results-panel" class="lg:col-span-2 hidden bg-white p-8 rounded-2xl shadow-xl border-2 border-dashed border-gray-200">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                <div class="space-y-4">
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <span class="p-1 bg-blue-100 text-blue-600 rounded">🧠</span> ML Model Response
+                    </h3>
+                    <div id="ml-status" class="space-y-3 font-mono text-xs text-gray-600"></div>
+                </div>
+                <div id="claim-box" class="flex flex-col items-center justify-center p-8 rounded-xl border transition-all duration-500 min-h-[160px]"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // 1. CONFIGURATION (Switch to Render URL for final deployment)
+        const API_BASE_URL = "https://earnsafe.onrender.com"; 
+
+        // 2. INITIALIZE MAP
+        const map = L.map('map').setView([12.904182, 80.102692], 13);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+        let marker = L.marker([12.904182, 80.102692], {draggable: true}).addTo(map);
+
+        map.on('click', e => {
+            marker.setLatLng(e.latlng);
+            document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+            document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+        });
+
+        // 3. UI TOGGLE & SLIDERS
+        const toggle = document.getElementById('real-weather-toggle');
+        const sliderGroup = document.getElementById('sliders-container');
+        
+        toggle.addEventListener('change', () => {
+            sliderGroup.classList.toggle('disabled-group', toggle.checked);
+        });
+
+        const inputs = ['temp', 'aqi', 'rain'];
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('input', () => {
+                const units = {temp: '°C', aqi: '', rain: ' mm'};
+                document.getElementById(id + '-val').textContent = el.value + units[id];
+            });
+        });
+
+        // 4. CORE FUNCTION
+        async function analyzeConditions() {
+            const resultsPanel = document.getElementById('results-panel');
+            const mlStatus = document.getElementById('ml-status');
+            const claimBox = document.getElementById('claim-box');
+            const useReal = document.getElementById('real-weather-toggle').checked;
+
+            resultsPanel.classList.remove('hidden');
+            mlStatus.innerHTML = "Computing Risk Score...";
+            claimBox.innerHTML = "Processing...";
+
+            // Construct Parameters
+            const params = {
+                lat: document.getElementById('lat').value,
+                lon: document.getElementById('lon').value
+            };
+
+            // ONLY add slider values if "Use Real Weather" is NOT checked
+            if (!useReal) {
+                params.temperature = document.getElementById('temp').value;
+                params.aqi = document.getElementById('aqi').value;
+                params.rainfall = document.getElementById('rain').value;
+            }
+
+            try {
+                const query = new URLSearchParams(params).toString();
+                const response = await fetch(`${API_BASE_URL}/weather/?${query}`);
+                
+                if (!response.ok) throw new Error("Connection Error");
+                
+                const data = await response.json();
+                const analysis = data.parametric_analysis || {};
+                const isDisrupted = analysis.is_disrupted;
+
+                mlStatus.innerHTML = `
+                    <div class="flex justify-between border-b pb-2">
+                        <span>Zone Risk Score:</span>
+                        <span class="font-bold text-gray-800">${data.risk_score || (isDisrupted ? 0.95 : 0.05)}</span>
+                    </div>
+                    <div class="flex justify-between border-b pb-2">
+                        <span>Disruption Detected:</span>
+                        <span class="${isDisrupted ? 'text-red-600 font-bold' : 'text-green-600'}">${isDisrupted ? 'YES' : 'NO'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Analysis Source:</span>
+                        <span class="text-blue-500">${useReal ? 'Real API' : 'Simulated'}</span>
+                    </div>
+                `;
+
+                if (isDisrupted) {
+                    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
+                    claimBox.innerHTML = `
+                        <div class="text-5xl mb-2">💰</div>
+                        <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
+                        <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${analysis.disruption_reason}</p>
+                        <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ 500.00 INITIATED</div>
+                    `;
+                } else {
+                    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border border-gray-100 bg-gray-50 opacity-60";
+                    claimBox.innerHTML = `<h4 class="text-gray-400 font-bold uppercase tracking-widest text-center">Safe Conditions</h4>`;
+                }
+
+            } catch (err) {
+                mlStatus.innerHTML = `<span class="text-red-500 font-bold">Error connecting to local server.</span>`;
+                claimBox.innerHTML = "Check VS Code Terminal";
+            }
+        }
+    </script>
+</body>
+</html>
