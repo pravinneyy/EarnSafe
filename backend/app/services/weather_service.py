@@ -57,10 +57,13 @@ def get_weather(lat: float, lon: float, m_temp=None, m_aqi=None, m_rain=None):
         humidity = w_data.get("main", {}).get("humidity", 0)
         
         
-        if m_rain and float(m_rain) > 0:
-            weather_desc = "heavy rain"
+        # FIX: Check if m_rain is actually passed (even if it is 0)
+        if m_rain is not None:
             rain_val = float(m_rain)
+            
+            weather_desc = "heavy rain" if rain_val > 5 else "clear sky"
         else:
+            
             weather_desc = w_data.get("weather", [{}])[0].get("description", "clear sky")
             rain_val = w_data.get("rain", {}).get("1h", 0)
 
