@@ -188,14 +188,24 @@
                 `;
 
                 if (isDisrupted) {
-                    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
-                    claimBox.innerHTML = `
-                        <div class="text-5xl mb-2">💰</div>
-                        <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
-                        <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${analysis.disruption_reason}</p>
-                        <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ 500.00 INITIATED</div>
-                    `;
-                } else {
+    // 1. Calculate payout based on the factor from the backend (default to 1.0 if missing)
+    const factor = analysis.payout_factor || 1.0;
+    const baseAmount = 500;
+    const finalPayout = (baseAmount * factor).toFixed(2);
+
+    claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
+    claimBox.innerHTML = `
+        <div class="text-5xl mb-2">💰</div>
+        <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
+        <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${analysis.reason || 'Weather disruption detected'}</p>
+        
+        <!-- Now this value changes dynamically! -->
+        <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ ${finalPayout} INITIATED</div>
+        
+        <p class="text-[9px] text-gray-400 mt-2 italic">Calculated at ${factor * 100}% coverage</p>
+    `;
+}
+                 else {
                     claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border border-gray-100 bg-gray-50 opacity-60";
                     claimBox.innerHTML = `<h4 class="text-gray-400 font-bold uppercase tracking-widest text-center">Safe Conditions</h4>`;
                 }
@@ -205,6 +215,7 @@
                 claimBox.innerHTML = "Check VS Code Terminal";
             }
         }
+
     </script>
 </body>
 </html>
