@@ -97,17 +97,114 @@ def _cache_key(prefix: str, payload: dict[str, Any]) -> str:
 async def _cached_json(redis: Redis | None, key: str) -> dict[str, Any] | None:
     if not redis:
         return None
-    raw = await redis.get(key)
-    if not raw:
+    try:
+        raw = await redis.get(key)
+        if not raw:
+            return None
+        return json.loads(raw)
+    except Exception as error:
+        logger.warning("Redis cache read failed for %s: %s", key, error)
         return None
-    return json.loads(raw)
 
 
 async def _write_cache(redis: Redis | None, key: str, payload: dict[str, Any]) -> None:
     if not redis:
         return
     settings = get_settings()
-    await redis.set(key, json.dumps(payload), ex=settings.ai_cache_ttl_seconds)
+    try:
+        await redis.set(key, json.dumps(payload), ex=settings.ai_cache_ttl_seconds)
+    except Exception as error:
+        logger.warning("Redis cache write failed for %s: %s", key, error)
+
+
+def _build_fallback_snapshot(*, lat: float, lon: float, zone: str, tier: str, reason: str) -> dict[str, Any]:
+    current_time = pd.Timestamp.now(tz="Asia/Kolkata").floor("h")
+    randomizer = Random(f"fallback:{lat}:{lon}:{current_time.isoformat()}")
+    zone_profile = _zone_profile(zone)
+
+    temp_c = round(28.0 + (zone_profile["heat"] * 6.0) + randomizer.uniform(-1.2, 1.2), 1)
+    humidity = int(round(55 + (zone_profile["flood"] * 30)))
+    rain_mm = round(zone_profile["flood"] * (12 if current_time.month in (6, 7, 8, 9, 10, 11) else 4), 1)
+    wind_kph = round(10 + randomizer.uniform(0, 8), 1)
+    pm25 = round(18 + (zone_profile["aqi"] * 35) + randomizer.uniform(-4, 4), 1)
+    pm10 = round(pm25 * 1.35, 1)
+    aqi_eu = max(1, min(5, int(round(pm25 / 20))))
+    wmo_code = 61 if rain_mm > 6 else 2
+
+    weather = {
+        "temp_c": temp_c,
+        "humidity": humidity,
+        "rain_mm": rain_mm,
+        "wind_kph": wind_kph,
+        "wmo_code": wmo_code,
+        "source": "fallback",
+    }
+    aqi = {
+        "pm25": pm25,
+        "pm10": pm10,
+        "aqi_eu": aqi_eu,
+        "source": "fallback",
+    }
+    traffic = {
+        "congestion_score": round(min(1.0, 0.25 + randomizer.uniform(0.0, 0.55)), 2),
+        "source": "fallback",
+    }
+    triggers = evaluate_triggers(
+        rain_mm=weather["rain_mm"],
+        temp_c=weather["temp_c"],
+        wind_kph=weather["wind_kph"],
+        pm25=aqi["pm25"],
+        flood_risk=zone_profile["flood"],
+    )
+    ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
+    weather_condition = _weather_label_from_wmo(weather["wmo_code"])
+    traffic_congestion = int(round(traffic["congestion_score"] * 100))
+
+    forecast: list[dict[str, Any]] = []
+    for hour_offset in range(12):
+        forecast_time = current_time + pd.Timedelta(hours=hour_offset)
+        forecast_temp = round(temp_c + randomizer.uniform(-1.5, 1.5), 1)
+        forecast_pm25 = round(max(0.0, pm25 + randomizer.uniform(-6, 6)), 1)
+        forecast.append(
+            {
+                "dt": int(forecast_time.tz_convert(timezone.utc).timestamp()),
+                "time": forecast_time.strftime("%Y-%m-%dT%H:%M"),
+                "temperature": forecast_temp,
+                "humidity": humidity,
+                "wind_speed": round(max(0.0, wind_kph + randomizer.uniform(-2, 2)), 1),
+                "weather_condition": weather_condition,
+                "wmo_code": weather["wmo_code"],
+                "pm25": forecast_pm25,
+                "pm10": round(forecast_pm25 * 1.35, 1),
+                "aqi_eu": max(1, min(5, int(round(forecast_pm25 / 20)))),
+            }
+        )
+
+    return {
+        "temperature": weather["temp_c"],
+        "weather_condition": weather_condition,
+        "humidity": weather["humidity"],
+        "wind_speed": weather["wind_kph"],
+        "pm25": aqi["pm25"],
+        "pm10": aqi["pm10"],
+        "aqi_eu": aqi["aqi_eu"],
+        "forecast": forecast,
+        "parametric_analysis": {
+            "is_disrupted": triggers["disruption_active"],
+            "disruption_reason": ai["active_disruption"],
+            "traffic_congestion": traffic_congestion,
+        },
+        "weather": weather,
+        "aqi": aqi,
+        "traffic": traffic,
+        "triggers": triggers,
+        "ai_risk_score": ai["ai_risk_score"],
+        "active_disruption": ai["active_disruption"],
+        "weekly_premium": ai["weekly_premium_inr"],
+        "zone_risk_profile": zone_profile,
+        "timestamp": pd.Timestamp.utcnow().isoformat(),
+        "fallback_reason": reason,
+    }
 
 
 async def _get_with_retry(client: httpx.AsyncClient, url: str, *, params: dict[str, Any], redis: Redis | None, cache_key: str) -> dict[str, Any]:
@@ -277,36 +374,40 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
 async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None) -> dict[str, Any]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout_seconds)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        weather_payload, aqi_payload = await asyncio.gather(
-            _get_with_retry(
-                client,
-                f"{settings.open_meteo_base_url}/v1/forecast",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": ["temperature_2m", "relative_humidity_2m", "rain", "wind_speed_10m", "weather_code"],
-                    "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"],
-                    "forecast_hours": 12,
-                    "timezone": "Asia/Kolkata",
-                },
-                redis=redis,
-                cache_key=_cache_key("weather", {"lat": lat, "lon": lon}),
-            ),
-            _get_with_retry(
-                client,
-                f"{settings.open_meteo_air_quality_base_url}/v1/air-quality",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": ["pm2_5", "pm10", "european_aqi"],
-                    "hourly": ["pm2_5", "pm10", "european_aqi"],
-                    "timezone": "Asia/Kolkata",
-                },
-                redis=redis,
-                cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}),
-            ),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            weather_payload, aqi_payload = await asyncio.gather(
+                _get_with_retry(
+                    client,
+                    f"{settings.open_meteo_base_url}/v1/forecast",
+                    params={
+                        "latitude": lat,
+                        "longitude": lon,
+                        "current": ["temperature_2m", "relative_humidity_2m", "rain", "wind_speed_10m", "weather_code"],
+                        "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"],
+                        "forecast_hours": 12,
+                        "timezone": "Asia/Kolkata",
+                    },
+                    redis=redis,
+                    cache_key=_cache_key("weather", {"lat": lat, "lon": lon}),
+                ),
+                _get_with_retry(
+                    client,
+                    f"{settings.open_meteo_air_quality_base_url}/v1/air-quality",
+                    params={
+                        "latitude": lat,
+                        "longitude": lon,
+                        "current": ["pm2_5", "pm10", "european_aqi"],
+                        "hourly": ["pm2_5", "pm10", "european_aqi"],
+                        "timezone": "Asia/Kolkata",
+                    },
+                    redis=redis,
+                    cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}),
+                ),
+            )
+    except Exception as error:
+        logger.warning("Falling back to synthetic weather snapshot for %s,%s: %s", lat, lon, error)
+        return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
 
     current_weather = weather_payload.get("current", {})
     current_aqi = aqi_payload.get("current", {})

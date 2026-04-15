@@ -173,7 +173,7 @@ export const getWeatherBundle = async (lat, lon, options = {}) => {
       if (stalePayload) {
         return stalePayload;
       }
-      console.error("Weather fetch failed, falling back to mock:", error.message);
+      console.warn("Weather fetch failed, falling back to mock:", error.message);
       return buildMockWeatherBundle(lat);
     } finally {
       weatherBundleRequests.delete(cacheKey);
@@ -220,7 +220,7 @@ export const getLiveWeather = async (lat, lon) => {
   try {
     return await getWeatherBundle(lat, lon);
   } catch (error) {
-    console.error("Weather fetch failed, falling back to mock:", error.message);
+    console.warn("Weather fetch failed, falling back to mock:", error.message);
     const mock = getMockAQI(lat);
     return {
       temperature: 28 + Math.random() * 5,
@@ -240,7 +240,7 @@ export const getAirQuality = async (lat, lon) => {
     }
     return getMockAQI(lat);
   } catch (error) {
-    console.error("AQI fetch failed, falling back to mock:", error.message);
+    console.warn("AQI fetch failed, falling back to mock:", error.message);
     return getMockAQI(lat);
   }
 };
@@ -249,7 +249,7 @@ export const getForecast = async (lat, lon) => {
   try {
     return await getWeatherBundle(lat, lon);
   } catch (error) {
-    console.error("Forecast fetch failed:", error.message);
+    console.warn("Forecast fetch failed:", error.message);
     return null;
   }
 };
