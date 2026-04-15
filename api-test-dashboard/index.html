@@ -110,7 +110,7 @@
         // 1. CONFIGURATION
         const API_BASE_URL = "https://earnsafe-backend.onrender.com"; 
 
-        // 2. INITIALIZE MAP
+        
         const map = L.map('map').setView([12.904182, 80.102692], 13);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
         let marker = L.marker([12.904182, 80.102692], {draggable: true}).addTo(map);
@@ -121,7 +121,7 @@
             document.getElementById('lon').value = e.latlng.lng.toFixed(6);
         });
 
-        // 3. UI TOGGLE & SLIDERS
+        
         const toggle = document.getElementById('real-weather-toggle');
         const sliderGroup = document.getElementById('sliders-container');
         
@@ -146,7 +146,7 @@
     const useReal = document.getElementById('real-weather-toggle').checked;
 
     resultsPanel.classList.remove('hidden');
-    mlStatus.innerHTML = "<p class='animate-pulse text-blue-500'>Running CatBoost Engine...</p>";
+    mlStatus.innerHTML = "<p class='animate-pulse text-blue-500 font-bold'>Running CatBoost Engine...</p>";
     claimBox.innerHTML = "Calculating Payout...";
 
     const params = {
@@ -165,55 +165,68 @@
         const response = await fetch(`${API_BASE_URL}/weather/?${query}`);
         const data = await response.json();
 
-        // 1. Get the data from your backend structure
+        // 1. EXTRACT DATA FROM BACKEND
         const analysis = data.parametric_analysis || {};
         const isDisrupted = analysis.is_disrupted;
+        const reasonText = analysis.disruption_reason || "Normal Conditions";
         
-        // 2. DYNAMIC PAYOUT CALCULATION
+        // 2. MULTIPLIER LOGIC (₹500 * payout_factor from Python)
         const baseAmount = 500;
-        const factor = analysis.payout_factor || 1.0; // Use the multiplier from Python
-        const finalPayout = (baseAmount * factor).toFixed(2);
-        
-        // 3. GET DYNAMIC REASON
-        const reasonText = analysis.disruption_reason || "Weather Disruption Detected";
+        const multiplier = analysis.payout_factor || 0.0;
+        const finalPayout = (baseAmount * multiplier).toFixed(2);
+        const payoutPercentage = (multiplier * 100).toFixed(0);
 
-        // Update ML Response Panel
+        // 3. UPDATE ML RESPONSE PANEL (Show real CatBoost score)
         mlStatus.innerHTML = `
             <div class="flex justify-between border-b pb-2">
                 <span>Zone Risk (CatBoost):</span>
-                <span class="font-bold text-gray-800">${data.risk_score || (isDisrupted ? 0.95 : 0.05)}</span>
+                <span class="font-bold text-gray-800">
+                    ${(typeof data.risk_score !== 'undefined') ? data.risk_score.toFixed(4) : "0.0000"}
+                </span>
             </div>
             <div class="flex justify-between border-b pb-2">
                 <span>Disruption Detected:</span>
-                <span class="${isDisrupted ? 'text-red-600 font-bold' : 'text-green-600'}">${isDisrupted ? 'YES' : 'NO'}</span>
+                <span class="${isDisrupted ? 'text-red-600 font-bold' : 'text-green-600'}">
+                    ${isDisrupted ? 'YES' : 'NO'}
+                </span>
             </div>
             <div class="flex justify-between">
                 <span>Analysis Source:</span>
-                <span class="text-blue-500">${useReal ? 'Real API' : 'Simulated'}</span>
+                <span class="text-blue-500 font-bold">${useReal ? 'Real API' : 'Simulated'}</span>
             </div>
         `;
 
+        // 4. UPDATE CLAIM BOX (Dynamic colors and amounts)
         if (isDisrupted) {
-            claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner";
+            claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border-2 border-green-500 bg-green-50 shadow-inner scale-100 transition-all";
             claimBox.innerHTML = `
                 <div class="text-5xl mb-2">💰</div>
                 <h4 class="text-green-800 font-black text-lg text-center leading-tight">AUTOMATIC CLAIM TRIGGERED</h4>
                 
-                <!-- This now shows the actual reason from your Python code -->
-                <p class="text-green-600 text-[10px] mt-1 uppercase font-bold text-center">${reasonText}</p>
+                <!-- Display the specific reason from Python (e.g., Extreme Heat Wave) -->
+                <p class="text-green-600 text-[11px] mt-1 uppercase font-black text-center tracking-tighter">${reasonText}</p>
                 
-                <!-- This now calculates based on the payout_factor (500, 400, or 300) -->
-                <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm">₹ ${finalPayout} INITIATED</div>
+                <!-- Display the calculated ₹ based on the multiplier -->
+                <div class="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg font-black text-sm shadow-md">
+                    ₹ ${finalPayout} INITIATED
+                </div>
                 
-                <p class="text-[9px] text-gray-400 mt-2 italic text-center">Calculated at ${factor * 100}% of daily average income</p>
+                <p class="text-[9px] text-gray-400 mt-2 italic text-center font-medium">
+                    Calculated at ${payoutPercentage}% coverage (Multiplier: ${multiplier})
+                </p>
             `;
         } else {
             claimBox.className = "flex flex-col items-center justify-center p-8 rounded-xl border border-gray-100 bg-gray-50 opacity-60";
-            claimBox.innerHTML = `<h4 class="text-gray-400 font-bold uppercase tracking-widest text-center">Safe Conditions</h4>`;
+            claimBox.innerHTML = `
+                <div class="text-3xl mb-2">☀️</div>
+                <h4 class="text-gray-400 font-bold uppercase tracking-widest text-center text-sm">Safe Conditions</h4>
+                <p class="text-[10px] text-gray-400 mt-1">No Payout Required</p>
+            `;
         }
 
     } catch (err) {
-        mlStatus.innerHTML = `<span class="text-red-500 font-bold">Error connecting to server.</span>`;
+        console.error(err);
+        mlStatus.innerHTML = `<span class="text-red-500 font-bold">Server Connection Error</span>`;
         claimBox.innerHTML = "Check Terminal";
     }
 }
