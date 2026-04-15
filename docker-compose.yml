@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: earnsafe
+      POSTGRES_USER: earnsafe
+      POSTGRES_PASSWORD: earnsafe
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://earnsafe:earnsafe@postgres:5432/earnsafe
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: change-me-to-a-32-character-secret-key
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A app.workers.celery_app.celery_app worker -B --loglevel=info
+    working_dir: /app/backend
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://earnsafe:earnsafe@postgres:5432/earnsafe
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: change-me-to-a-32-character-secret-key
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  postgres_data:

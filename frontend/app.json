@@ -18,6 +18,11 @@
         "backgroundColor": "#F5F1EA"
       },
       "package": "com.insuranceapp.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4e1dd71c-4834-4ca0-bc20-41ad2f559421"
+      }
     }
   }
 }

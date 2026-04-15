@@ -469,6 +469,7 @@ For Android:
 
 ```bash
 cd frontend
+npm run android:setup
 npx expo run:android
 ```
 
@@ -485,6 +486,7 @@ Important notes:
 - Razorpay checkout does not work inside Expo Go because `react-native-razorpay` is a native module.
 - Use `npx expo run:android`, `npx expo run:ios`, or a custom dev client build.
 - Android Studio, the Android SDK, and the Android emulator must be installed before `npx expo run:android` will work.
+- On Windows, run `npm run android:setup` once after installing Android Studio or changing your Java/SDK paths.
 - After setting `JAVA_HOME`, `ANDROID_HOME`, or `ANDROID_SDK_ROOT`, open a fresh terminal so Expo and Gradle can see them.
 - Make sure your phone and computer are on the same Wi-Fi network if you are testing on a physical device.
 - `EXPO_PUBLIC_API_BASE_URL` is recommended for real-device testing.

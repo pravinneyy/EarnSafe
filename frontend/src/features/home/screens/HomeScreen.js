@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 
-import { getLiveWeather, getAirQuality, getForecast } from '../../../services/api/weatherApi';
+import { getWeatherBundle } from '../../../services/api/weatherApi';
 import { AppPill } from '../../../shared/components';
 import LiveMap from '../../../shared/components/LiveMap';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
@@ -21,6 +21,8 @@ import { useTheme } from '../../../shared/theme/ThemeContext';
 import WeatherMap from '../../../shared/components/WeatherMap';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const LOCATION_PRECISION = 3;
+let lastResolvedLocation = null;
 
 // ─── AQI label mapping ────────────────────────
 function getUsAqiParams(aqi) {
@@ -64,6 +66,19 @@ function formatHour(timestamp) {
   const h = d.getHours().toString().padStart(2, '0');
   const m = d.getMinutes().toString().padStart(2, '0');
   return `${h}:${m}`;
+}
+
+function normalizeCoords(coords) {
+  if (coords?.latitude == null || coords?.longitude == null) return null;
+  return {
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+  };
+}
+
+function getLocationKey(coords) {
+  if (!coords) return null;
+  return `${coords.latitude.toFixed(LOCATION_PRECISION)}:${coords.longitude.toFixed(LOCATION_PRECISION)}`;
 }
 
 // ───────────────────────────────────────────────
@@ -161,9 +176,29 @@ export default function HomeScreen({ route }) {
 
   // Location state
   const [permissionStatus, setPermissionStatus] = useState('loading');
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] = useState(lastResolvedLocation);
   const locationSub = useRef(null);
   const hasAnimated = useRef(false);
+
+  function applyLocation(coords) {
+    const normalized = normalizeCoords(coords);
+    if (!normalized) {
+      return;
+    }
+
+    lastResolvedLocation = normalized;
+    setLocation(previous => {
+      if (getLocationKey(previous) === getLocationKey(normalized)) {
+        return previous;
+      }
+      return normalized;
+    });
+
+    if (!hasAnimated.current) {
+      animateToCoords(normalized);
+      hasAnimated.current = true;
+    }
+  }
 
   // ── Request permission & start watcher ──────
   async function requestLocationPermission() {
@@ -184,15 +219,15 @@ export default function HomeScreen({ route }) {
 
   async function startLocationWatcher() {
     try {
+      const lastKnownPosition = await Location.getLastKnownPositionAsync();
+      applyLocation(lastKnownPosition?.coords);
+    } catch (_) {}
+
+    try {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      setLocation(coords);
-      if (!hasAnimated.current) {
-        animateToCoords(coords);
-        hasAnimated.current = true;
-      }
+      applyLocation(pos.coords);
     } catch (_) {}
 
     locationSub.current = await Location.watchPositionAsync(
@@ -202,8 +237,7 @@ export default function HomeScreen({ route }) {
         distanceInterval: 50,
       },
       (pos) => {
-        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setLocation(coords);
+        applyLocation(pos.coords);
       },
     );
   }
@@ -218,27 +252,33 @@ export default function HomeScreen({ route }) {
     return () => { locationSub.current?.remove(); };
   }, []);
 
+  const locationKey = getLocationKey(location);
+
   // ── Load weather + AQI + Forecast ──────────────
   useEffect(() => {
-    if (!location) return;
+    if (!locationKey || !location) return;
+
+    let isActive = true;
 
     async function fetchData() {
       try {
-        const [weatherData, aqiData, forecastData] = await Promise.all([
-          getLiveWeather(location.latitude, location.longitude),
-          getAirQuality(location.latitude, location.longitude),
-          getForecast(location.latitude, location.longitude)
-        ]);
-        if (weatherData) setWeather(weatherData);
-        if (aqiData) setAirQuality(aqiData);
-        if (forecastData && forecastData.forecast) setForecast(forecastData.forecast);
+        const bundle = await getWeatherBundle(location.latitude, location.longitude);
+        if (!isActive || !bundle) {
+          return;
+        }
+        setWeather(bundle);
+        setAirQuality(bundle);
+        setForecast(bundle.forecast || []);
       } catch (_) {
         console.log('Error loading weather/AQI');
       }
     }
 
     fetchData();
-  }, [location?.latitude, location?.longitude]);
+    return () => {
+      isActive = false;
+    };
+  }, [locationKey]);
 
   // Expand Animation helper
   const toggleExpand = () => {

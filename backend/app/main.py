@@ -1,31 +1,50 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-# Import your routers from the routers folder
-from app.routers import user_router, policy_router, claim_router, weather_router, payment_router
+from redis.asyncio import Redis
+
+from app.config import get_settings
+from app.database import init_db
+from app.middleware.logging import RequestLoggingMiddleware, configure_logging
+from app.routers import claim_router, payment_router, policy_router, user_router, weather_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    configure_logging()
+    settings = get_settings()
+    app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    await init_db()
+    yield
+    redis_client = getattr(app.state, "redis", None)
+    if redis_client:
+        await redis_client.close()
+
+
+settings = get_settings()
 app = FastAPI(
-    title="Insurance API",
-    description="Parametric income insurance API for delivery workers",
-    version="1.0.0",
+    title=settings.app_name,
+    description="Production-grade parametric income insurance API for delivery workers",
+    version=settings.app_version,
+    lifespan=lifespan,
 )
 
-
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 app.include_router(user_router.router)
 app.include_router(policy_router.router)
 app.include_router(payment_router.router)
 app.include_router(claim_router.router)
-# This includes the logic from your weather_router.py file
 app.include_router(weather_router.router)
 
+
 @app.get("/", tags=["Health"])
-def health():
-    return {"status": "ok", "service": "Insurance API v1.0.0"}
+async def health():
+    return {"status": "ok", "service": settings.app_name, "version": settings.app_version}

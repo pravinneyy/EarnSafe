@@ -1,27 +1,75 @@
-from dataclasses import dataclass
 from functools import lru_cache
-import os
+from typing import Literal
 
-from dotenv import load_dotenv
+from pydantic import AnyHttpUrl, Field, SecretStr, computed_field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
 
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-@dataclass(frozen=True)
-class Settings:
-    openweather_api_key: str | None
-    supabase_url: str | None
-    supabase_service_role_key: str | None
-    razorpay_key_id: str | None
-    razorpay_key_secret: str | None
+    app_name: str = "EarnSafe API"
+    app_version: str = "2.0.0"
+    environment: Literal["local", "development", "staging", "production"] = "development"
+    debug: bool = False
+    api_prefix: str = "/api"
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+
+    database_url: str = Field(..., description="Async SQLAlchemy connection string")
+    redis_url: str = "redis://redis:6379/0"
+
+    jwt_secret_key: SecretStr = Field(..., min_length=32)
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = Field(default=60, ge=5, le=1440)
+
+    openweather_api_key: SecretStr | None = None
+    open_meteo_base_url: AnyHttpUrl = "https://api.open-meteo.com"
+    open_meteo_air_quality_base_url: AnyHttpUrl = "https://air-quality-api.open-meteo.com"
+    tomtom_api_key: SecretStr | None = None
+
+    razorpay_key_id: SecretStr | None = None
+    razorpay_key_secret: SecretStr | None = None
+    razorpay_webhook_secret: SecretStr | None = None
+    razorpay_base_url: AnyHttpUrl = "https://api.razorpay.com/v1"
+
+    request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    retry_attempts: int = Field(default=3, ge=1, le=10)
+    ai_cache_ttl_seconds: int = Field(default=300, ge=30, le=86400)
+
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if value is None:
+            return value
+
+        database_url = str(value).strip()
+        if database_url.startswith("postgresql+asyncpg://"):
+            return database_url
+        if database_url.startswith("postgresql://"):
+            return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if database_url.startswith("postgres://"):
+            return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return database_url
+
+    @computed_field
+    @property
+    def effective_celery_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @computed_field
+    @property
+    def effective_celery_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings(
-        openweather_api_key=os.getenv("OPENWEATHER_API_KEY"),
-        supabase_url=os.getenv("SUPABASE_URL"),
-        supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        razorpay_key_id=os.getenv("RAZORPAY_KEY_ID"),
-        razorpay_key_secret=os.getenv("RAZORPAY_KEY_SECRET"),
-    )
+    return Settings()

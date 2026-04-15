@@ -1,8 +1,8 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_]{3,30}$"
 PHONE_PATTERN = r"^\d{10}$"
@@ -62,6 +62,8 @@ class UserLogin(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     name: str
@@ -79,6 +81,8 @@ class PolicyCreate(BaseModel):
 
 
 class PolicyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     plan_tier: str
@@ -86,9 +90,14 @@ class PolicyResponse(BaseModel):
     daily_coverage: float
     max_weekly_payout: float
     status: str
+    activated_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 class UserSessionResponse(UserResponse):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
     active_policy: Optional[PolicyResponse] = None
 
 
@@ -118,6 +127,13 @@ class PaymentOrderCreate(BaseModel):
     user_id: int
     plan_tier: PlanTier
     quote_id: str
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80)
+
+    @model_validator(mode="after")
+    def ensure_idempotency_key(self) -> "PaymentOrderCreate":
+        if not self.idempotency_key:
+            self.idempotency_key = f"payment-{self.user_id}-{self.plan_tier.value}-{self.quote_id}"
+        return self
 
 
 class PaymentOrderResponse(BaseModel):
@@ -147,6 +163,11 @@ class PaymentVerificationResponse(BaseModel):
     policy: PolicyResponse
 
 
+class PaymentWebhookPayload(BaseModel):
+    event: str
+    payload: dict[str, Any]
+
+
 class ClaimCreate(BaseModel):
     user_id: int
     policy_id: int
@@ -156,6 +177,8 @@ class ClaimCreate(BaseModel):
 
 
 class ClaimResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     policy_id: int
@@ -165,3 +188,20 @@ class ClaimResponse(BaseModel):
     fraud_score: float
     status: str
     reason: Optional[str] = None
+
+
+class TriggerEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    public_id: str
+    user_id: int
+    policy_id: int | None
+    zone: str
+    event_type: str
+    severity: str
+    status: str
+    payload: dict[str, Any]
+    eligible_for_claim: bool
+    processed_at: datetime | None = None
+    created_at: datetime

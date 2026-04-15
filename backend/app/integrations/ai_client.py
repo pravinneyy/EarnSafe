@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+from datetime import timezone
+from pathlib import Path
+from random import Random
+from typing import Any
+
+import httpx
+import pandas as pd
+from catboost import CatBoostClassifier
+from redis.asyncio import Redis
+
+from app.config import get_settings
+from app.services.exceptions import IntegrationError
+
+logger = logging.getLogger(__name__)
+
+TRIGGERS = [
+    {"id": "heavy_rainfall", "name": "Heavy Rainfall", "threshold": 20.0, "field": "rain_mm", "fixed_payout": 500},
+    {"id": "severe_waterlogging", "name": "Severe Waterlogging", "threshold": 50.0, "field": "rain_mm", "fixed_payout": 800},
+    {"id": "extreme_heat", "name": "Extreme Heat", "threshold": 42.0, "field": "temp_c", "fixed_payout": 400},
+    {"id": "hazardous_aqi", "name": "Hazardous Air Quality", "threshold": 75.0, "field": "pm25", "fixed_payout": 300},
+    {"id": "high_wind", "name": "Dangerous Wind Speed", "threshold": 60.0, "field": "wind_kph", "fixed_payout": 350},
+]
+
+ZONE_RISK_MAP = {
+    "Velachery": {"flood": 0.85, "heat": 0.60, "aqi": 0.55},
+    "Anna Nagar": {"flood": 0.35, "heat": 0.65, "aqi": 0.50},
+    "T Nagar": {"flood": 0.60, "heat": 0.70, "aqi": 0.65},
+    "OMR": {"flood": 0.40, "heat": 0.55, "aqi": 0.40},
+    "Tambaram": {"flood": 0.50, "heat": 0.60, "aqi": 0.45},
+    "Adyar": {"flood": 0.70, "heat": 0.58, "aqi": 0.48},
+    "Perambur": {"flood": 0.45, "heat": 0.65, "aqi": 0.70},
+    "Chrompet": {"flood": 0.55, "heat": 0.62, "aqi": 0.50},
+    "Sholinganallur": {"flood": 0.75, "heat": 0.55, "aqi": 0.42},
+    "Kodambakkam": {"flood": 0.50, "heat": 0.68, "aqi": 0.60},
+}
+
+_TIER_BASE_RATES = {"basic": 29.0, "standard": 49.0, "pro": 89.0}
+_RISK_MODEL_PATH = Path(__file__).resolve().parents[3] / "ai" / "ml" / "models" / "risk_model.cbm"
+_RISK_MODEL: CatBoostClassifier | None = None
+
+_WMO_LABELS = {
+    0: "Clear",
+    1: "Mainly Clear",
+    2: "Partly Cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Fog",
+    51: "Light Drizzle",
+    53: "Drizzle",
+    55: "Heavy Drizzle",
+    56: "Freezing Drizzle",
+    57: "Freezing Drizzle",
+    61: "Light Rain",
+    63: "Rain",
+    65: "Heavy Rain",
+    66: "Freezing Rain",
+    67: "Freezing Rain",
+    71: "Light Snow",
+    73: "Snow",
+    75: "Heavy Snow",
+    77: "Snow Grains",
+    80: "Rain Showers",
+    81: "Rain Showers",
+    82: "Heavy Showers",
+    85: "Snow Showers",
+    86: "Snow Showers",
+    95: "Thunderstorm",
+    96: "Thunderstorm",
+    99: "Thunderstorm",
+}
+
+
+def _load_risk_model() -> CatBoostClassifier | None:
+    global _RISK_MODEL
+    if _RISK_MODEL is not None:
+        return _RISK_MODEL
+    if not _RISK_MODEL_PATH.exists():
+        logger.warning("Risk model file not found at %s; falling back to heuristic premium scoring.", _RISK_MODEL_PATH)
+        return None
+    model = CatBoostClassifier()
+    model.load_model(str(_RISK_MODEL_PATH))
+    _RISK_MODEL = model
+    return _RISK_MODEL
+
+
+def _cache_key(prefix: str, payload: dict[str, Any]) -> str:
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"ai:{prefix}:{digest}"
+
+
+async def _cached_json(redis: Redis | None, key: str) -> dict[str, Any] | None:
+    if not redis:
+        return None
+    raw = await redis.get(key)
+    if not raw:
+        return None
+    return json.loads(raw)
+
+
+async def _write_cache(redis: Redis | None, key: str, payload: dict[str, Any]) -> None:
+    if not redis:
+        return
+    settings = get_settings()
+    await redis.set(key, json.dumps(payload), ex=settings.ai_cache_ttl_seconds)
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str, *, params: dict[str, Any], redis: Redis | None, cache_key: str) -> dict[str, Any]:
+    cached = await _cached_json(redis, cache_key)
+    if cached:
+        return cached
+
+    settings = get_settings()
+    last_error: Exception | None = None
+    for attempt in range(settings.retry_attempts):
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+            await _write_cache(redis, cache_key, payload)
+            return payload
+        except (httpx.TimeoutException, httpx.HTTPError) as error:
+            last_error = error
+            logger.warning("HTTP call failed for %s on attempt %s/%s", url, attempt + 1, settings.retry_attempts)
+    raise IntegrationError(f"Upstream AI/weather dependency failed: {last_error}") from last_error
+
+
+def _zone_profile(zone: str) -> dict[str, float]:
+    return ZONE_RISK_MAP.get(zone.strip().title(), {"flood": 0.50, "heat": 0.60, "aqi": 0.50})
+
+
+def _disruption_label(rain_mm: float, temp_c: float, aqi_pm25: float, zone_profile: dict[str, float]) -> str:
+    if rain_mm > 50 and zone_profile.get("flood", 0.5) > 0.6:
+        return "Severe Waterlogging"
+    if rain_mm > 20:
+        return "Heavy Rainfall"
+    if temp_c > 42:
+        return "Extreme Heat"
+    if aqi_pm25 > 75:
+        return "Severe AQI"
+    return "None"
+
+
+def _weather_label_from_wmo(code: int | None) -> str:
+    if code is None:
+        return "Unknown"
+    return _WMO_LABELS.get(code, "Unknown")
+
+
+def _to_unix_timestamp(value: str) -> int:
+    return int(pd.Timestamp(value).tz_localize("Asia/Kolkata").tz_convert(timezone.utc).timestamp())
+
+
+def _build_hourly_forecast(weather_payload: dict[str, Any], aqi_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    weather_hourly = weather_payload.get("hourly", {})
+    aqi_hourly = aqi_payload.get("hourly", {})
+
+    weather_times = weather_hourly.get("time", []) or []
+    temperature_values = weather_hourly.get("temperature_2m", []) or []
+    humidity_values = weather_hourly.get("relative_humidity_2m", []) or []
+    wind_values = weather_hourly.get("wind_speed_10m", []) or []
+    weather_code_values = weather_hourly.get("weather_code", []) or []
+
+    aqi_times = aqi_hourly.get("time", []) or []
+    pm25_values = aqi_hourly.get("pm2_5", []) or []
+    pm10_values = aqi_hourly.get("pm10", []) or []
+    aqi_eu_values = aqi_hourly.get("european_aqi", []) or []
+
+    aqi_by_time = {}
+    for idx, time_value in enumerate(aqi_times):
+        aqi_by_time[time_value] = {
+            "pm25": round(pm25_values[idx] or 0.0, 1) if idx < len(pm25_values) else 0.0,
+            "pm10": round(pm10_values[idx] or 0.0, 1) if idx < len(pm10_values) else 0.0,
+            "aqi_eu": aqi_eu_values[idx] or 1 if idx < len(aqi_eu_values) else 1,
+        }
+
+    forecast: list[dict[str, Any]] = []
+    for idx, time_value in enumerate(weather_times[:12]):
+        wmo_code = weather_code_values[idx] if idx < len(weather_code_values) else 0
+        aqi_sample = aqi_by_time.get(time_value, {"pm25": 0.0, "pm10": 0.0, "aqi_eu": 1})
+        forecast.append(
+            {
+                "dt": _to_unix_timestamp(time_value),
+                "time": time_value,
+                "temperature": round(temperature_values[idx], 1) if idx < len(temperature_values) else 0.0,
+                "humidity": humidity_values[idx] if idx < len(humidity_values) else 0,
+                "wind_speed": round(wind_values[idx], 1) if idx < len(wind_values) else 0.0,
+                "weather_condition": _weather_label_from_wmo(wmo_code),
+                "wmo_code": wmo_code,
+                "pm25": aqi_sample["pm25"],
+                "pm10": aqi_sample["pm10"],
+                "aqi_eu": aqi_sample["aqi_eu"],
+            }
+        )
+
+    return forecast
+
+
+def predict_risk(zone: str, delivery_persona: str, tier: str) -> dict[str, Any]:
+    clean_zone = zone.strip().title()
+    clean_persona = delivery_persona.strip().title()
+    clean_tier = tier.strip().lower()
+    month = pd.Timestamp.utcnow().month
+    zone_profile = _zone_profile(clean_zone)
+    if 6 <= month <= 10:
+        rain_mm, temp_c, aqi_pm25 = zone_profile["flood"] * 45, 28.0, 30.0
+    elif month in (3, 4, 5):
+        rain_mm, temp_c, aqi_pm25 = 5.0, 35 + zone_profile["heat"] * 6, 35.0
+    else:
+        rain_mm, temp_c, aqi_pm25 = 10.0, 29.0, 30.0 + zone_profile["aqi"] * 30
+
+    active_disruption = _disruption_label(rain_mm, temp_c, aqi_pm25, zone_profile)
+    input_frame = pd.DataFrame(
+        [
+            {
+                "Zone": clean_zone,
+                "Delivery_Persona": clean_persona,
+                "Month": month,
+                "Forecast_Rain_mm": round(rain_mm, 1),
+                "Forecast_Temp_C": round(temp_c, 1),
+                "AQI_PM25": round(aqi_pm25, 1),
+                "Wind_KPH": 12.0,
+                "External_Disruption": active_disruption,
+            }
+        ]
+    )
+    probability = 0.5
+    model = _load_risk_model()
+    if model is not None:
+        try:
+            probability = float(model.predict_proba(input_frame)[:, 1][0])
+        except Exception as error:
+            logger.warning("CatBoost inference failed, using fallback score: %s", error)
+    base_rate = _TIER_BASE_RATES.get(clean_tier, 49.0)
+    return {
+        "ai_risk_score": round(probability, 2),
+        "weekly_premium_inr": round(base_rate * (1.0 + probability), 2),
+        "zone": clean_zone,
+        "active_disruption": active_disruption,
+    }
+
+
+def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: float, flood_risk: float = 0.5) -> dict[str, Any]:
+    fired: list[dict[str, Any]] = []
+    total_payout = 0
+    values = {"rain_mm": rain_mm, "temp_c": temp_c, "wind_kph": wind_kph, "pm25": pm25}
+    for trigger in TRIGGERS:
+        value = values[trigger["field"]]
+        if trigger["id"] == "severe_waterlogging":
+            matched = rain_mm > trigger["threshold"] and flood_risk > 0.6
+        else:
+            matched = value > trigger["threshold"]
+        if matched:
+            fired.append(
+                {
+                    "trigger_id": trigger["id"],
+                    "trigger_name": trigger["name"],
+                    "threshold": trigger["threshold"],
+                    "measured_value": value,
+                    "fixed_payout": trigger["fixed_payout"],
+                }
+            )
+            total_payout += trigger["fixed_payout"]
+    return {
+        "triggers_fired": fired,
+        "trigger_count": len(fired),
+        "disruption_active": bool(fired),
+        "total_fixed_payout": min(total_payout, 1200),
+    }
+
+
+async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None) -> dict[str, Any]:
+    settings = get_settings()
+    timeout = httpx.Timeout(settings.request_timeout_seconds)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        weather_payload, aqi_payload = await asyncio.gather(
+            _get_with_retry(
+                client,
+                f"{settings.open_meteo_base_url}/v1/forecast",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current": ["temperature_2m", "relative_humidity_2m", "rain", "wind_speed_10m", "weather_code"],
+                    "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"],
+                    "forecast_hours": 12,
+                    "timezone": "Asia/Kolkata",
+                },
+                redis=redis,
+                cache_key=_cache_key("weather", {"lat": lat, "lon": lon}),
+            ),
+            _get_with_retry(
+                client,
+                f"{settings.open_meteo_air_quality_base_url}/v1/air-quality",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current": ["pm2_5", "pm10", "european_aqi"],
+                    "hourly": ["pm2_5", "pm10", "european_aqi"],
+                    "timezone": "Asia/Kolkata",
+                },
+                redis=redis,
+                cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}),
+            ),
+        )
+
+    current_weather = weather_payload.get("current", {})
+    current_aqi = aqi_payload.get("current", {})
+    weather = {
+        "temp_c": round(current_weather.get("temperature_2m", 30.0), 1),
+        "humidity": current_weather.get("relative_humidity_2m", 60),
+        "rain_mm": round(current_weather.get("rain", 0.0), 1),
+        "wind_kph": round(current_weather.get("wind_speed_10m", 10.0), 1),
+        "wmo_code": current_weather.get("weather_code", 0),
+        "source": "open-meteo",
+    }
+    aqi = {
+        "pm25": round(current_aqi.get("pm2_5", 0.0) or 0.0, 1),
+        "pm10": round(current_aqi.get("pm10", 0.0) or 0.0, 1),
+        "aqi_eu": current_aqi.get("european_aqi", 1) or 1,
+        "source": "open-meteo-aqi",
+    }
+    randomizer = Random(f"{lat}:{lon}:{pd.Timestamp.utcnow().hour}")
+    traffic = {
+        "congestion_score": round(min(1.0, 0.25 + randomizer.uniform(0.0, 0.55)), 2),
+        "source": "synthetic-traffic",
+    }
+    zone_profile = _zone_profile(zone)
+    triggers = evaluate_triggers(
+        rain_mm=weather["rain_mm"],
+        temp_c=weather["temp_c"],
+        wind_kph=weather["wind_kph"],
+        pm25=aqi["pm25"],
+        flood_risk=zone_profile["flood"],
+    )
+    ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
+    weather_condition = _weather_label_from_wmo(weather["wmo_code"])
+    traffic_congestion = int(round(traffic["congestion_score"] * 100))
+    forecast = _build_hourly_forecast(weather_payload, aqi_payload)
+    return {
+        "temperature": weather["temp_c"],
+        "weather_condition": weather_condition,
+        "humidity": weather["humidity"],
+        "wind_speed": weather["wind_kph"],
+        "pm25": aqi["pm25"],
+        "pm10": aqi["pm10"],
+        "aqi_eu": aqi["aqi_eu"],
+        "forecast": forecast,
+        "parametric_analysis": {
+            "is_disrupted": triggers["disruption_active"],
+            "disruption_reason": ai["active_disruption"],
+            "traffic_congestion": traffic_congestion,
+        },
+        "weather": weather,
+        "aqi": aqi,
+        "traffic": traffic,
+        "triggers": triggers,
+        "ai_risk_score": ai["ai_risk_score"],
+        "active_disruption": ai["active_disruption"],
+        "weekly_premium": ai["weekly_premium_inr"],
+        "zone_risk_profile": zone_profile,
+        "timestamp": pd.Timestamp.utcnow().isoformat(),
+    }

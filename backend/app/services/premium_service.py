@@ -1,80 +1,38 @@
-"""
-Premium calculation service.
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
-Formula: base_premium × zone_risk_factor × season_factor × platform_factor
-Each plan tier has a fixed base. Factors adjust it based on worker profile.
-Now enhanced with CatBoost AI risk scoring from ai_service.
-"""
-
-from datetime import datetime
-
-from app.services.ai_service import predict_risk
-
-# Plan base premiums (₹/week)
 PLAN_CONFIG = {
-    "basic":    {"premium": 29,  "daily_coverage": 300,  "max_weekly": 1500},
-    "standard": {"premium": 49,  "daily_coverage": 500,  "max_weekly": 2500},
-    "pro":      {"premium": 89,  "daily_coverage": 800,  "max_weekly": 4000},
+    "basic": {"premium": 29.0, "daily_coverage": 300.0, "max_weekly": 1500.0},
+    "standard": {"premium": 49.0, "daily_coverage": 500.0, "max_weekly": 2500.0},
+    "pro": {"premium": 89.0, "daily_coverage": 800.0, "max_weekly": 4000.0},
 }
 
-# Cities with higher flood / heat risk get a loading
-HIGH_RISK_CITIES = {"chennai", "mumbai", "kolkata", "patna", "kochi"}
-MED_RISK_CITIES  = {"pune", "hyderabad", "delhi", "ahmedabad", "surat"}
 
-# Q-commerce platforms have higher hourly dependency → slight loading
-HIGH_DEPENDENCY_PLATFORMS = {"blinkit", "zepto"}
+def round_currency(amount: float) -> float:
+    return float(Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def _zone_risk_factor(city: str) -> float:
-    c = city.lower()
-    if c in HIGH_RISK_CITIES:
-        return 1.15
-    if c in MED_RISK_CITIES:
-        return 1.08
-    return 1.0
+def to_subunits(amount: float) -> int:
+    return int(Decimal(str(round_currency(amount))) * 100)
 
 
-def _season_factor() -> float:
-    month = datetime.now().month
-    if 6 <= month <= 9:    # monsoon
-        return 1.20
-    if month in (4, 5):    # summer / heat wave season
-        return 1.10
-    return 1.0
-
-
-def _platform_factor(platform: str) -> float:
-    return 1.10 if platform.lower() in HIGH_DEPENDENCY_PLATFORMS else 1.0
-
-
-def calculate_weekly_premium(plan_tier: str, city: str, platform: str) -> dict:
-    """
-    Returns full premium breakdown for a given plan + worker profile,
-    now augmented with AI risk data from the CatBoost model.
-    """
-    config = PLAN_CONFIG[plan_tier]
-
-    zf = _zone_risk_factor(city)
-    sf = _season_factor()
-    pf = _platform_factor(platform)
-
-    raw_premium = config["premium"] * zf * sf * pf
-    final_premium = round(raw_premium)   # round to nearest ₹
-
-    # Get AI risk assessment
-    ai_data = predict_risk(zone=city, delivery_persona=platform, tier=plan_tier)
-
+def build_quote_response(*, quote_id: str, user_id: int, plan_tier: str, ai_data: dict) -> dict:
+    tier = PLAN_CONFIG[plan_tier]
+    weekly_premium = round_currency(ai_data["weekly_premium_inr"])
+    created_at = datetime.now(timezone.utc)
     return {
-        "weekly_premium":    final_premium,
-        "daily_coverage":    config["daily_coverage"],
-        "max_weekly_payout": config["max_weekly"],
-        "ai_risk_score":     ai_data["ai_risk_score"],
-        "ai_premium":        ai_data["weekly_premium_inr"],
+        "id": quote_id,
+        "user_id": user_id,
+        "plan_tier": plan_tier,
+        "weekly_premium": weekly_premium,
+        "amount": to_subunits(weekly_premium),
+        "currency": "INR",
+        "base_premium": tier["premium"],
+        "daily_coverage": tier["daily_coverage"],
+        "max_weekly_payout": tier["max_weekly"],
+        "ai_risk_score": ai_data["ai_risk_score"],
+        "zone": ai_data["zone"],
         "active_disruption": ai_data["active_disruption"],
-        "breakdown": {
-            "base_premium":      config["premium"],
-            "zone_risk_factor":  zf,
-            "season_factor":     sf,
-            "platform_factor":   pf,
-        }
+        "created_at": created_at,
+        "expires_at": created_at + timedelta(minutes=15),
     }

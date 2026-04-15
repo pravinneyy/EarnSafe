@@ -1,79 +1,33 @@
-from fastapi import APIRouter, HTTPException
-from app.services.weather_service import get_weather, get_forecast
-from app.services.traffic_service import get_traffic_status
-from fastapi import APIRouter, Query
-from app.services import weather_service
-from typing import Optional
+from fastapi import APIRouter, Depends, Query
+
+from app.dependencies import get_current_user, get_redis_client
+from app.models import User
+from app.services.weather_service import WeatherService
 
 router = APIRouter(prefix="/weather", tags=["Weather"])
 
+
 @router.get("/")
-def get_weather_data(
-    lat: float, 
-    lon: float, 
-    temperature: Optional[float] = Query(None), 
-    aqi: Optional[int] = Query(None), 
-    rainfall: Optional[float] = Query(None)
+async def get_weather_data(
+    lat: float,
+    lon: float,
+    zone: str = Query("Chennai"),
+    tier: str = Query("standard"),
+    current_user: User = Depends(get_current_user),
+    redis=Depends(get_redis_client),
 ):
-    
-    return weather_service.get_weather(
-        lat, lon, 
-        m_temp=temperature, 
-        m_aqi=aqi, 
-        m_rain=rainfall
-    )
-
-@router.get("/")
-def fetch_hyperlocal_status(lat: float, lon: float):
-    
-    # 1. Get Weather & AQI
-    weather_data = get_weather(lat, lon)
-    if "error" in weather_data:
-        raise HTTPException(status_code=500, detail=weather_data["error"])
-    
-    # 2. Get Traffic from TomTom 
-    try:
-        traffic_data = get_traffic_status(lat, lon)
-    except Exception as e:
-        print(f"Traffic Service Error: {e}")
-        traffic_data = {"is_gridlock": False, "congestion_level": 0}
-    
-    
-    is_disrupted = False
-    reasons = []
-
-    
-    if weather_data.get("rain", 0) > 5:
-        is_disrupted = True
-        reasons.append("Heavy Rain")
-
-    
-    if traffic_data.get("is_gridlock"):
-        is_disrupted = True
-        reasons.append("Severe Traffic Gridlock")
-
-    
-    if weather_data.get("pm25", 0) > 150: 
-        is_disrupted = True
-        reasons.append("Hazardous Air Quality")
-
-    
-    analysis = weather_data.get("parametric_analysis", {})
-    
-    
-    weather_data["parametric_analysis"] = {
-        "is_disrupted": is_disrupted or analysis.get("is_disrupted", False),
-        "disruption_reason": " & ".join(reasons) if reasons else analysis.get("disruption_reason", "Normal"),
-        "traffic_congestion": traffic_data.get("congestion_level"),
-        "payout_eligible": is_disrupted or analysis.get("is_disrupted", False)
-    }
-    
-    return weather_data
+    _ = current_user
+    return await WeatherService(redis).get_weather_snapshot(lat=lat, lon=lon, zone=zone, tier=tier)
 
 
 @router.get("/forecast")
-def fetch_forecast(lat: float, lon: float):
-    forecast_data = get_forecast(lat, lon)
-    if "error" in forecast_data:
-        raise HTTPException(status_code=500, detail=forecast_data["error"])
-    return forecast_data
+async def fetch_forecast(
+    lat: float,
+    lon: float,
+    zone: str = Query("Chennai"),
+    tier: str = Query("standard"),
+    current_user: User = Depends(get_current_user),
+    redis=Depends(get_redis_client),
+):
+    _ = current_user
+    return await WeatherService(redis).get_weather_snapshot(lat=lat, lon=lon, zone=zone, tier=tier)

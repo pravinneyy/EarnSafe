@@ -42,6 +42,7 @@ This starts Metro on port 8081. Leave this running.
 ### First time / after native changes (new packages, app.json changes):
 ```bash
 cd d:\devtrails\frontend
+npm run android:setup
 npx expo run:android
 ```
 This builds the native app AND opens it on the emulator.

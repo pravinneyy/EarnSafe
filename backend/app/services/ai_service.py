@@ -1,9 +1,3 @@
-from pathlib import Path
-import sys
+from app.integrations.ai_client import TRIGGERS, ZONE_RISK_MAP, evaluate_triggers, get_live_risk_data, predict_risk
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_repo_root = str(_REPO_ROOT)
-if _repo_root not in sys.path:
-    sys.path.insert(0, _repo_root)
-
-from ai.ml.ai_service import *  # noqa: F401,F403
+__all__ = ["TRIGGERS", "ZONE_RISK_MAP", "evaluate_triggers", "get_live_risk_data", "predict_risk"]

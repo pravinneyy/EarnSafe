@@ -46,7 +46,64 @@ function Test-JdkHome {
         return $false
     }
 
-    return (Test-Path -LiteralPath (Join-Path $resolved "bin\javac.exe"))
+    $javaExe = Join-Path $resolved "bin\java.exe"
+    $javacExe = Join-Path $resolved "bin\javac.exe"
+    $jlinkExe = Join-Path $resolved "bin\jlink.exe"
+    $jvmConfig = Join-Path $resolved "lib\jvm.cfg"
+
+    if (
+        -not (Test-Path -LiteralPath $javaExe) -or
+        -not (Test-Path -LiteralPath $javacExe) -or
+        -not (Test-Path -LiteralPath $jlinkExe) -or
+        -not (Test-Path -LiteralPath $jvmConfig)
+    ) {
+        return $false
+    }
+
+    return $true
+}
+
+function Get-JavaHomeFromCommandPath {
+    param([string]$CommandName)
+
+    try {
+        $command = Get-Command $CommandName -ErrorAction Stop | Select-Object -First 1
+    } catch {
+        return $null
+    }
+
+    if (-not $command -or [string]::IsNullOrWhiteSpace($command.Source)) {
+        return $null
+    }
+
+    return Split-Path -Parent (Split-Path -Parent $command.Source)
+}
+
+function Get-EmbeddedJdkCandidates {
+    $extensionRoots = @(
+        "$env:USERPROFILE\.vscode\extensions",
+        "$env:USERPROFILE\.cursor\extensions",
+        "$env:USERPROFILE\.antigravity\extensions"
+    ) | Where-Object { Test-Path -LiteralPath $_ }
+
+    $candidates = @()
+    foreach ($root in $extensionRoots) {
+        $extensions = Get-ChildItem -LiteralPath $root -Directory -Filter "redhat.java-*" -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending
+
+        foreach ($extension in $extensions) {
+            $jreRoot = Join-Path $extension.FullName "jre"
+            if (-not (Test-Path -LiteralPath $jreRoot)) {
+                continue
+            }
+
+            $candidates += Get-ChildItem -LiteralPath $jreRoot -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending |
+                ForEach-Object { $_.FullName }
+        }
+    }
+
+    return $candidates
 }
 
 function Get-JdkVersion {
@@ -110,6 +167,8 @@ function Find-AndroidSdk {
 function Find-Jdk17OrNewer {
     $candidates = @(
         $env:JAVA_HOME,
+        (Get-JavaHomeFromCommandPath -CommandName "javac"),
+        (Get-JavaHomeFromCommandPath -CommandName "java"),
         "$env:PROGRAMFILES\Android\Android Studio\jbr",
         "$env:PROGRAMFILES\Android\Android Studio\jre",
         "$env:PROGRAMFILES\Java\jdk-21",
@@ -123,9 +182,13 @@ function Find-Jdk17OrNewer {
         "$env:LOCALAPPDATA\Programs\Microsoft\jdk-21"
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
+    $candidates += Get-EmbeddedJdkCandidates
+
     $javaRoots = @(
         "$env:PROGRAMFILES\Java",
         "$env:PROGRAMFILES\Eclipse Adoptium",
+        "$env:ProgramW6432\Java",
+        "$env:ProgramW6432\Eclipse Adoptium",
         "$env:LOCALAPPDATA\Programs\Microsoft"
     ) | Where-Object { Test-Path -LiteralPath $_ }
 
@@ -158,7 +221,8 @@ function Find-Jdk17OrNewer {
 function Add-UserPathEntry {
     param(
         [string]$CurrentPath,
-        [string]$Entry
+        [string]$Entry,
+        [switch]$Prepend
     )
 
     if ([string]::IsNullOrWhiteSpace($Entry)) {
@@ -170,11 +234,34 @@ function Add-UserPathEntry {
         $parts = $CurrentPath.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     }
 
-    if ($parts -contains $Entry) {
-        return ($parts -join ";")
+    $parts = $parts | Where-Object { $_ -ne $Entry }
+
+    if ($Prepend) {
+        return ((@($Entry) + $parts) -join ";")
     }
 
     return (($parts + $Entry) -join ";")
+}
+
+function Remove-UserPathEntry {
+    param(
+        [string]$CurrentPath,
+        [string]$Entry
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
+        return $CurrentPath
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Entry)) {
+        return $CurrentPath
+    }
+
+    $parts = $CurrentPath.Split(";") | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $Entry
+    }
+
+    return ($parts -join ";")
 }
 
 $frontendPath = Get-NormalizedPath -PathValue $FrontendDir
@@ -211,7 +298,7 @@ if (-not $javaHome) {
     throw @"
 JDK 17 or newer not found.
 
-Install JDK 17+ or Android Studio (which usually includes a bundled JBR),
+Install a full JDK 17+ (with javac and jlink) or repair Android Studio's bundled runtime,
 then run this script again.
 "@
 }
@@ -223,7 +310,16 @@ Write-Step "Setting user environment variables"
 [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "User")
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$userPath = Add-UserPathEntry -CurrentPath $userPath -Entry (Join-Path $javaHome "bin")
+$androidStudioJbrBin = Get-FirstExistingPath -Candidates @(
+    "$env:PROGRAMFILES\Android\Android Studio\jbr\bin",
+    "$env:ProgramW6432\Android\Android Studio\jbr\bin"
+)
+
+if ($androidStudioJbrBin) {
+    $userPath = Remove-UserPathEntry -CurrentPath $userPath -Entry $androidStudioJbrBin
+}
+
+$userPath = Add-UserPathEntry -CurrentPath $userPath -Entry (Join-Path $javaHome "bin") -Prepend
 $userPath = Add-UserPathEntry -CurrentPath $userPath -Entry (Join-Path $sdkPath "platform-tools")
 $userPath = Add-UserPathEntry -CurrentPath $userPath -Entry (Join-Path $sdkPath "emulator")
 
@@ -240,7 +336,10 @@ if ($cmdlineTools) {
 $env:ANDROID_HOME = $sdkPath
 $env:ANDROID_SDK_ROOT = $sdkPath
 $env:JAVA_HOME = $javaHome
-$env:Path = Add-UserPathEntry -CurrentPath $env:Path -Entry (Join-Path $javaHome "bin")
+if ($androidStudioJbrBin) {
+    $env:Path = Remove-UserPathEntry -CurrentPath $env:Path -Entry $androidStudioJbrBin
+}
+$env:Path = Add-UserPathEntry -CurrentPath $env:Path -Entry (Join-Path $javaHome "bin") -Prepend
 $env:Path = Add-UserPathEntry -CurrentPath $env:Path -Entry (Join-Path $sdkPath "platform-tools")
 $env:Path = Add-UserPathEntry -CurrentPath $env:Path -Entry (Join-Path $sdkPath "emulator")
 if ($cmdlineTools) {
