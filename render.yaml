@@ -45,7 +45,7 @@ services:
     runtime: static
     rootDir: frontend
     buildCommand: npm install && npx expo export --platform web --clear
-    staticPublishPath: frontend/dist
+    staticPublishPath: dist
     envVars:
       - key: EXPO_PUBLIC_API_BASE_URL
         value: https://earnsafe-backend.onrender.com
