@@ -5,9 +5,10 @@ This repo already includes a Render Blueprint at [render.yaml](/d:/devtrails/ren
 ## What It Provisions
 
 - `earnsafe-backend`: FastAPI web service
-- `earnsafe-worker`: Celery worker with beat enabled
 - `earnsafe-redis`: Render Key Value instance for cache and queueing
 - `earnsafe-db`: Render Postgres database
+
+This Blueprint is configured for Render's free tier. It does not create a background worker, because Render background workers are not available on the free plan.
 
 ## Before You Deploy
 
@@ -33,8 +34,11 @@ This repo already includes a Render Blueprint at [render.yaml](/d:/devtrails/ren
 
 - Render Postgres provides a standard PostgreSQL connection string. The backend now auto-converts it to the async `postgresql+asyncpg://` format expected by SQLAlchemy.
 - The Docker image now respects Render's `PORT` environment variable automatically.
-- The worker uses the same database, Redis, and JWT secret as the web service.
 - Tables are created automatically on startup by `init_db()`.
+- Free Render web services spin down after inactivity.
+- Free Render Postgres expires after 30 days.
+- Free Render Key Value does not persist data across restarts.
+- Any Celery background processing is disabled in this free-tier setup because the worker service is omitted.
 
 ## Verify The Deploy
 
@@ -44,6 +48,7 @@ After the backend finishes deploying:
 2. Confirm you get a JSON health response like:
    - `{"status":"ok", ...}`
 3. Check the worker logs in Render to confirm Celery started cleanly.
+   Skip this step for the free-tier blueprint because there is no worker service.
 
 ## Mobile App Update
 

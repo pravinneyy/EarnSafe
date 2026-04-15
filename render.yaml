@@ -2,7 +2,7 @@ services:
   - name: earnsafe-backend
     type: web
     runtime: docker
-    plan: starter
+    plan: free
     autoDeployTrigger: commit
     healthCheckPath: /
     dockerContext: .
@@ -35,48 +35,9 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
-  - name: earnsafe-worker
-    type: worker
-    runtime: docker
-    plan: starter
-    autoDeployTrigger: commit
-    dockerContext: .
-    dockerfilePath: backend/Dockerfile
-    dockerCommand: celery -A app.workers.celery_app.celery_app worker -B --loglevel=info
-    envVars:
-      - key: ENVIRONMENT
-        value: production
-      - key: DEBUG
-        value: "false"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: earnsafe-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          name: earnsafe-redis
-          type: keyvalue
-          property: connectionString
-      - key: JWT_SECRET_KEY
-        fromService:
-          name: earnsafe-backend
-          type: web
-          envVarKey: JWT_SECRET_KEY
-      - key: OPENWEATHER_API_KEY
-        sync: false
-      - key: TOMTOM_API_KEY
-        sync: false
-      - key: RAZORPAY_KEY_ID
-        sync: false
-      - key: RAZORPAY_KEY_SECRET
-        sync: false
-      - key: RAZORPAY_WEBHOOK_SECRET
-        sync: false
-      - key: CORS_ORIGINS
-        sync: false
   - name: earnsafe-redis
     type: keyvalue
-    plan: starter
+    plan: free
     ipAllowList: []
     maxmemoryPolicy: noeviction
   - name: earnsafe-web
