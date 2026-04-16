@@ -225,6 +225,37 @@ class AuthService:
         logger.info("AuthService: Firebase phone login", extra={"user_id": user.id, "phone": phone})
         return _session_response(user, token, wallet, active_policy)
 
+    async def phone_login(self, phone: str, otp: str) -> dict:
+        """
+        Mock OTP login — accepts any 6-digit OTP, looks up user by phone number.
+        Replace with real Firebase OTP verification in production.
+        """
+        # Validate OTP format (6 digits) — value is not checked in mock mode
+        if not otp.isdigit() or len(otp) != 6:
+            raise AuthenticationError("OTP must be exactly 6 digits.")
+
+        # Normalise phone — strip leading +91 if present
+        clean = phone.strip().lstrip("+")
+        if clean.startswith("91") and len(clean) == 12:
+            clean = clean[2:]
+        if len(clean) != 10 or not clean.isdigit():
+            raise AuthenticationError("Enter a valid 10-digit mobile number.")
+
+        user = await self.user_repo.get_by_phone(clean)
+        if not user:
+            raise NotFoundError(
+                f"No EarnSafe account found for {phone}. "
+                "Please register first or use the phone number you signed up with."
+            )
+
+        active_policy = await self.policy_repo.get_active_for_user(user.id)
+        wallet = await self.wallet_service.get_or_create_wallet(user.id)
+        token = create_access_token(str(user.id), extra_claims={"username": user.username})
+
+        logger.info("AuthService: mock phone login", extra={"user_id": user.id, "phone": clean})
+        return _session_response(user, token, wallet, active_policy)
+
+
     async def get_me(self, user_id: int) -> dict:
         user = await self.user_repo.get_by_id(user_id)
         if not user:

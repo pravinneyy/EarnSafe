@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import DbSession, get_redis_client
-from app.schemas import FirebaseAuthRequest, UserLogin, UserSessionResponse
+from app.schemas import FirebaseAuthRequest, PhoneLoginRequest, UserLogin, UserSessionResponse
 from app.services.auth_service import AuthService
 from app.services.exceptions import AuthenticationError, NotFoundError, ValidationError
 
@@ -40,3 +40,18 @@ async def login(credentials: UserLogin, session: DbSession, redis=Depends(get_re
         return await AuthService(session).login(credentials)
     except AuthenticationError as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+
+
+@router.post(
+    "/phone-login",
+    response_model=UserSessionResponse,
+    summary="Mock Phone Login (OTP bypass)",
+    description="Dev/demo auth. Accepts a phone number + any 6-digit OTP and logs in by phone lookup. Replace with Firebase OTP in production.",
+)
+async def phone_login(payload: PhoneLoginRequest, session: DbSession):
+    try:
+        return await AuthService(session).phone_login(payload.phone, payload.otp)
+    except AuthenticationError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    except NotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

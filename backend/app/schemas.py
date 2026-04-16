@@ -76,6 +76,12 @@ class FirebaseAuthRequest(BaseModel):
     firebase_token: str = Field(..., min_length=10, description="Firebase Phone Auth ID token")
 
 
+class PhoneLoginRequest(BaseModel):
+    """Mock OTP login — phone number + any 6-digit OTP. Replace with Firebase in production."""
+    phone: str = Field(..., min_length=10, max_length=10, description="10-digit mobile number")
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit OTP (mock — any value accepted)")
+
+
 # ---------------------------------------------------------------------------
 # User / session schemas
 # ---------------------------------------------------------------------------
