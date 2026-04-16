@@ -67,25 +67,13 @@ class UserLogin(BaseModel):
         return value.strip().lower()
 
 
-class OTPSendRequest(BaseModel):
-    """Primary auth: request a one-time password to be sent to a phone number."""
-    phone: str = Field(..., pattern=PHONE_PATTERN, example="9876543210")
-
-    @field_validator("phone", mode="before")
-    @classmethod
-    def strip_phone(cls, v: str) -> str:
-        return v.strip()
-
-
-class OTPVerifyRequest(BaseModel):
-    """Verify the OTP received on phone and receive a JWT token."""
-    phone: str = Field(..., pattern=PHONE_PATTERN, example="9876543210")
-    otp: str = Field(..., pattern=OTP_PATTERN, example="482931")
-
-    @field_validator("phone", "otp", mode="before")
-    @classmethod
-    def strip_fields(cls, v: str) -> str:
-        return v.strip()
+class FirebaseAuthRequest(BaseModel):
+    """
+    Primary auth: exchange a Firebase Phone Auth ID token for an EarnSafe JWT.
+    The client authenticates the phone number via the Firebase SDK and sends
+    the resulting ID token here.
+    """
+    firebase_token: str = Field(..., min_length=10, description="Firebase Phone Auth ID token")
 
 
 # ---------------------------------------------------------------------------

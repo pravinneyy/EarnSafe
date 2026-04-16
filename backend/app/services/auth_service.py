@@ -1,9 +1,9 @@
+import base64
+import json
 import logging
-import random
-import string
 
-import httpx
-from redis.asyncio import Redis
+from firebase_admin import auth as firebase_auth, credentials
+import firebase_admin
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.policy_repository import PolicyRepository
@@ -11,17 +11,55 @@ from app.repositories.user_repository import UserRepository
 from app.schemas import UserCreate, UserLogin
 from app.security import create_access_token, hash_password, verify_password
 from app.models import User
-from app.config import MSG91_SEND_OTP_URL, get_settings
-from app.services.exceptions import AuthenticationError, ConflictError, NotFoundError, RateLimitError, ValidationError
+from app.config import get_settings
+from app.services.exceptions import AuthenticationError, ConflictError, NotFoundError, ValidationError
 from app.services.wallet_service import WalletService
 
 logger = logging.getLogger(__name__)
 
-OTP_TTL_SECONDS = 300        # OTP expires in 5 minutes
-OTP_REDIS_PREFIX = "otp:"
-OTP_RATE_PREFIX = "otp_rate:)"  # rate-limit counter key prefix
-OTP_MAX_REQUESTS = 3           # max OTP sends per rate window
-OTP_RATE_WINDOW = 300          # rate window = 5 minutes (matches OTP TTL)
+# ── Firebase Admin SDK — initialize once at module level ─────────────────────
+_firebase_initialized = False
+
+
+def _ensure_firebase_initialized() -> None:
+    """Lazily initialize Firebase Admin SDK using the service account from env."""
+    global _firebase_initialized
+    if _firebase_initialized or firebase_admin._apps:
+        _firebase_initialized = True
+        return
+
+    settings = get_settings()
+
+    if settings.firebase_service_account_json:
+        try:
+            raw_json = base64.b64decode(
+                settings.firebase_service_account_json.get_secret_value()
+            )
+            service_account_info = json.loads(raw_json)
+            cred = credentials.Certificate(service_account_info)
+            firebase_admin.initialize_app(cred)
+            _firebase_initialized = True
+            logger.info("Firebase Admin SDK initialized from service account JSON")
+        except Exception as exc:
+            logger.error("Failed to initialize Firebase Admin SDK", extra={"error": str(exc)})
+            raise ValidationError(
+                "Firebase is not configured correctly. "
+                "Check FIREBASE_SERVICE_ACCOUNT_JSON env var."
+            ) from exc
+    elif settings.firebase_project_id:
+        # Attempt default credentials (works on Google Cloud, not on Render without service account)
+        try:
+            firebase_admin.initialize_app(options={"projectId": settings.firebase_project_id})
+            _firebase_initialized = True
+            logger.info("Firebase Admin SDK initialized with project ID only")
+        except Exception as exc:
+            raise ValidationError(
+                "Firebase initialization failed. Set FIREBASE_SERVICE_ACCOUNT_JSON."
+            ) from exc
+    else:
+        raise ValidationError(
+            "Firebase is not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON env var."
+        )
 
 
 def _risk_score(city: str, platform: str) -> float:
@@ -34,78 +72,9 @@ def _risk_score(city: str, platform: str) -> float:
     return min(score, 100.0)
 
 
-def _generate_otp(length: int = 6) -> str:
-    return "".join(random.choices(string.digits, k=length))
-
-
-async def _send_sms_msg91(phone: str, otp: str) -> bool:
-    """
-    Send a real SMS via MSG91's OTP API v5.
-    Returns True on success, False on any failure (caller falls back to debug_otp).
-
-    MSG91 v5 OTP API:
-      POST https://control.msg91.com/api/v5/otp
-      Header: authkey = YOUR_AUTH_KEY
-      Body (JSON): { template_id, mobile (with country code), otp }
-    """
-    settings = get_settings()
-    if not settings.msg91_api_key:
-        return False
-
-    api_key = settings.msg91_api_key.get_secret_value()
-
-    headers = {
-        "authkey": api_key,          # MSG91 requires authkey in the HEADER, not the body
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    payload = {
-        "template_id": settings.msg91_template_id,
-        "mobile": f"91{phone}",      # India country code prefix
-        "otp": otp,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(MSG91_SEND_OTP_URL, headers=headers, json=payload)
-
-        body = response.text
-        logger.info(
-            "MSG91 OTP response",
-            extra={"phone": phone, "status": response.status_code, "body": body},
-        )
-
-        if response.status_code != 200:
-            logger.error(
-                "MSG91 OTP send failed — falling back to debug_otp",
-                extra={"phone": phone, "status": response.status_code, "body": body},
-            )
-            return False
-
-        data = response.json()
-        if data.get("type") != "success":
-            logger.error(
-                "MSG91 OTP rejected — falling back to debug_otp",
-                extra={"phone": phone, "response": data},
-            )
-            return False
-
-        logger.info("MSG91 OTP sent successfully", extra={"phone": phone})
-        return True
-
-    except Exception as exc:
-        logger.error(
-            "MSG91 request exception — falling back to debug_otp",
-            extra={"phone": phone, "error": str(exc)},
-        )
-        return False
-
-
-
 class AuthService:
-    def __init__(self, session: AsyncSession, redis: Redis | None = None) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
-        self.redis = redis
         self.user_repo = UserRepository(session)
         self.policy_repo = PolicyRepository(session)
         self.wallet_service = WalletService(session)
@@ -128,35 +97,19 @@ class AuthService:
             risk_score=_risk_score(payload.city, payload.platform.value),
         )
         try:
-            await self.user_repo.create(user)  # flush only, no commit
-            # Auto-create wallet in the same transaction
+            await self.user_repo.create(user)
             wallet = await self.wallet_service.get_or_create_wallet(user.id)
-            await self.session.commit()         # single commit covers user + wallet
+            await self.session.commit()
         except Exception:
             await self.session.rollback()
             raise
 
-        logger.info("AuthService: user registered", extra={"user_id": user.id, "phone": user.phone})
-
+        logger.info("AuthService: user registered", extra={"user_id": user.id})
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
-        return {
-            "id": user.id,
-            "username": user.username,
-            "name": user.name,
-            "phone": user.phone,
-            "city": user.city,
-            "delivery_zone": user.delivery_zone,
-            "platform": user.platform,
-            "weekly_income": user.weekly_income,
-            "risk_score": user.risk_score,
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in": 3600,
-            "wallet_balance": wallet.balance,
-            "active_policy": None,
-        }
+        return _session_response(user, token, wallet, active_policy=None)
 
     async def login(self, payload: UserLogin) -> dict:
+        """Username + password login (secondary auth method)."""
         user = await self.user_repo.get_by_username(payload.username)
         if not user or not verify_password(payload.password, user.password_hash):
             raise AuthenticationError("Invalid username or password")
@@ -166,137 +119,55 @@ class AuthService:
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
 
         logger.info("AuthService: user logged in (password)", extra={"user_id": user.id})
-        return {
-            "id": user.id,
-            "username": user.username,
-            "name": user.name,
-            "phone": user.phone,
-            "city": user.city,
-            "delivery_zone": user.delivery_zone,
-            "platform": user.platform,
-            "weekly_income": user.weekly_income,
-            "risk_score": user.risk_score,
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in": 3600,
-            "wallet_balance": wallet.balance,
-            "active_policy": active_policy,
-        }
+        return _session_response(user, token, wallet, active_policy)
 
-    async def send_otp(self, phone: str) -> dict:
+    async def firebase_login(self, firebase_id_token: str) -> dict:
         """
-        Primary auth: generates a 6-digit OTP stored in Redis with a 5-min TTL.
+        Primary auth: verify a Firebase Phone Auth ID token.
 
-        SMS delivery behaviour:
-          - If MSG91_API_KEY + MSG91_TEMPLATE_ID are set → real SMS is sent.
-          - If not configured → OTP is returned in the API response as 'debug_otp'
-            so the app can complete login without a real SMS gateway.
-
-        Rate-limited: max 3 requests per 5-minute window per phone.
+        Flow:
+          1. Client authenticates phone via Firebase SDK (OTP sent by Firebase).
+          2. Client receives Firebase ID token after OTP verification.
+          3. Client sends ID token here.
+          4. We verify it with Firebase Admin SDK.
+          5. We extract the phone number and look up the user.
+          6. We issue our own JWT and return the full session.
         """
-        if not self.redis:
-            raise ValidationError("OTP service is unavailable (Redis not configured)")
+        _ensure_firebase_initialized()
 
-        # ── Rate limit check ─────────────────────────────────────────────────
-        rate_key = f"{OTP_RATE_PREFIX}{phone}"
-        request_count = await self.redis.get(rate_key)
-        if request_count and int(request_count) >= OTP_MAX_REQUESTS:
-            raise RateLimitError(
-                "Too many OTP requests. Please wait before trying again."
-            )
+        try:
+            decoded = firebase_auth.verify_id_token(firebase_id_token)
+        except firebase_auth.ExpiredIdTokenError as exc:
+            raise AuthenticationError("Firebase token has expired. Please log in again.") from exc
+        except firebase_auth.InvalidIdTokenError as exc:
+            raise AuthenticationError("Invalid Firebase token.") from exc
+        except Exception as exc:
+            logger.error("Firebase token verification failed", extra={"error": str(exc)})
+            raise AuthenticationError("Could not verify Firebase token.") from exc
 
-        # User must already exist (OTP is for login, not registration)
+        # Firebase phone numbers are always in E.164 format: +91XXXXXXXXXX
+        raw_phone: str = decoded.get("phone_number", "")
+        if not raw_phone:
+            raise AuthenticationError("Firebase token does not contain a phone number.")
+
+        # Strip country code to get the 10-digit phone stored in our DB
+        phone = raw_phone.lstrip("+")
+        if phone.startswith("91") and len(phone) == 12:
+            phone = phone[2:]   # +919876543210 → 9876543210
+
         user = await self.user_repo.get_by_phone(phone)
         if not user:
             raise NotFoundError(
-                "No account found for this phone number. "
-                "Please register first or use the phone number you signed up with."
+                f"No EarnSafe account is linked to this phone number ({raw_phone}). "
+                "Please register first."
             )
-
-        otp = _generate_otp()
-        redis_key = f"{OTP_REDIS_PREFIX}{phone}"
-        await self.redis.set(redis_key, otp, ex=OTP_TTL_SECONDS)
-
-        # Increment rate counter; set TTL only on first request
-        pipe = self.redis.pipeline()
-        pipe.incr(rate_key)
-        pipe.expire(rate_key, OTP_RATE_WINDOW)
-        await pipe.execute()
-
-        settings = get_settings()
-        response: dict = {
-            "message": "OTP sent successfully",
-            "phone": phone,
-            "expires_in": OTP_TTL_SECONDS,
-        }
-
-        if settings.sms_gateway_configured:
-            # ── Try real SMS via MSG91 ────────────────────────────────────
-            sms_sent = await _send_sms_msg91(phone, otp)
-            if sms_sent:
-                logger.info("AuthService: OTP dispatched via MSG91", extra={"phone": phone})
-            else:
-                logger.warning(
-                    "AuthService: MSG91 failed — debug_otp exposed as fallback",
-                    extra={"phone": phone},
-                )
-            # Always include debug_otp until SMS delivery is confirmed
-            # (MSG91 may report success but carrier may block if DLT unregistered)
-            # Remove this once DLT registration is complete and SMS is verified end-to-end.
-            response["debug_otp"] = otp
-        else:
-            # ── No SMS gateway configured — return OTP for testing ────────
-            response["debug_otp"] = otp
-            logger.warning(
-                "AuthService: No SMS gateway configured — debug_otp in response. "
-                "Set MSG91_API_KEY + MSG91_TEMPLATE_ID to send real SMS.",
-                extra={"phone": phone, "otp": otp},
-            )
-
-        return response
-
-    async def verify_otp(self, phone: str, otp: str) -> dict:
-        """
-        Verify a previously sent OTP and return a JWT if valid.
-        The OTP key is deleted from Redis on first use (single-use).
-        """
-        if not self.redis:
-            raise ValidationError("OTP service is unavailable (Redis not configured)")
-
-        redis_key = f"{OTP_REDIS_PREFIX}{phone}"
-        stored_otp = await self.redis.get(redis_key)
-
-        if not stored_otp or stored_otp != otp:
-            raise AuthenticationError("Invalid or expired OTP")
-
-        # Single-use: delete immediately
-        await self.redis.delete(redis_key)
-
-        user = await self.user_repo.get_by_phone(phone)
-        if not user:
-            raise NotFoundError("User not found")
 
         active_policy = await self.policy_repo.get_active_for_user(user.id)
         wallet = await self.wallet_service.get_or_create_wallet(user.id)
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
 
-        logger.info("AuthService: user logged in (OTP)", extra={"user_id": user.id})
-        return {
-            "id": user.id,
-            "username": user.username,
-            "name": user.name,
-            "phone": user.phone,
-            "city": user.city,
-            "delivery_zone": user.delivery_zone,
-            "platform": user.platform,
-            "weekly_income": user.weekly_income,
-            "risk_score": user.risk_score,
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in": 3600,
-            "wallet_balance": wallet.balance,
-            "active_policy": active_policy,
-        }
+        logger.info("AuthService: user logged in (Firebase phone auth)", extra={"user_id": user.id})
+        return _session_response(user, token, wallet, active_policy)
 
     async def get_current_user(self, user_id: int) -> User:
         user = await self.user_repo.get_by_id(user_id)
@@ -305,10 +176,6 @@ class AuthService:
         return user
 
     async def get_me(self, user_id: int) -> dict:
-        """
-        Full profile for the /me endpoint.
-        Returns user fields + wallet balance + active policy + last_policy_change_at.
-        """
         user = await self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundError("User not found")
@@ -330,3 +197,24 @@ class AuthService:
             "active_policy": active_policy,
             "last_policy_change_at": user.last_policy_change_at,
         }
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _session_response(user: User, token: str, wallet, active_policy) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "name": user.name,
+        "phone": user.phone,
+        "city": user.city,
+        "delivery_zone": user.delivery_zone,
+        "platform": user.platform,
+        "weekly_income": user.weekly_income,
+        "risk_score": user.risk_score,
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "wallet_balance": wallet.balance,
+        "active_policy": active_policy,
+    }

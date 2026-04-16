@@ -11,9 +11,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import auth from '@react-native-firebase/auth';
 
 import { useTheme } from '../../../shared/theme/ThemeContext';
-import { loginUser, sendOtp, verifyOtp } from '../../../services/api';
+import { loginUser, loginWithFirebase } from '../../../services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,8 +22,6 @@ const FLOW = {
   PHONE: 'phone',
   OTP: 'otp',
   PASSWORD: 'password',
-  // After password login, show phone linked to account → offer OTP
-  PHONE_CONFIRM: 'phone_confirm',
 };
 
 // ── Field component — MUST be at module scope (not inside render) ──────────
@@ -62,11 +61,8 @@ export default function ExistingUserScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // After password login we know the user's phone — offer OTP from there
-  const [loggedInSession, setLoggedInSession] = useState(null);
-
-  // In dev/staging the backend returns debug_otp in the response
-  const [debugOtp, setDebugOtp] = useState(null);
+  // Firebase confirmation result — holds the verifier needed to confirm OTP
+  const [confirmation, setConfirmation] = useState(null);
 
   function goToMain(session) {
     navigation.reset({
@@ -75,96 +71,82 @@ export default function ExistingUserScreen({ navigation }) {
     });
   }
 
-  // ── OTP Step 1: send code ───────────────────────────────────────────────
+  // ── Step 1: send OTP via Firebase ────────────────────────────────────────
   async function handleSendOtp() {
-    const trimmedPhone = phone.trim().replace(/\D/g, ''); // strip non-digits
+    const trimmedPhone = phone.trim().replace(/\D/g, '');
     if (trimmedPhone.length !== 10) {
       Alert.alert('Invalid phone', 'Enter the 10-digit mobile number you registered with.');
       return;
     }
     setLoading(true);
-    setDebugOtp(null);
     try {
-      const res = await sendOtp(trimmedPhone);
-      // Dev mode: backend returns debug_otp so we can test without SMS
-      if (res?.debug_otp) {
-        setDebugOtp(res.debug_otp);
-        setOtp(res.debug_otp); // auto-fill for convenience
-      }
+      // Firebase sends the OTP SMS — no backend call needed here
+      const e164Phone = `+91${trimmedPhone}`;
+      const confirmationResult = await auth().signInWithPhoneNumber(e164Phone);
+      setConfirmation(confirmationResult);
       setFlow(FLOW.OTP);
     } catch (err) {
-      if (err.status === 429) {
-        Alert.alert('Too many requests', 'Wait a few minutes before requesting another OTP.');
-      } else if (err.status === 404) {
-        Alert.alert(
-          'Phone not registered',
-          'No account was found for this number.\n\n• Make sure you enter the exact 10-digit number used during registration.\n• Or use "Sign in with password" below, then check the phone linked to your account.',
-        );
+      const msg = err?.message || 'Could not send OTP. Try again.';
+      if (msg.includes('TOO_MANY_REQUESTS') || msg.includes('too-many-requests')) {
+        Alert.alert('Too many attempts', 'Firebase has rate-limited this number. Wait a few minutes.');
+      } else if (msg.includes('INVALID_PHONE_NUMBER') || msg.includes('invalid-phone-number')) {
+        Alert.alert('Invalid number', 'Check the phone number and try again.');
       } else {
-        Alert.alert('Could not send OTP', err.message);
+        Alert.alert('Could not send OTP', msg);
       }
     } finally {
       setLoading(false);
     }
   }
 
-  // ── OTP Step 2: verify code ─────────────────────────────────────────────
+  // ── Step 2: verify OTP with Firebase → get ID token → backend JWT ────────
   async function handleVerifyOtp() {
     const trimmedOtp = otp.trim();
     if (trimmedOtp.length !== 6) {
       Alert.alert('Invalid OTP', 'Enter the 6-digit code sent to your phone.');
       return;
     }
+    if (!confirmation) {
+      Alert.alert('Session expired', 'Please go back and resend the OTP.');
+      return;
+    }
     setLoading(true);
     try {
-      const session = await verifyOtp(phone.trim().replace(/\D/g, ''), trimmedOtp);
+      // Verify OTP with Firebase
+      const credential = await confirmation.confirm(trimmedOtp);
+      // Get the Firebase ID token
+      const firebaseToken = await credential.user.getIdToken();
+      // Exchange Firebase token for EarnSafe JWT
+      const session = await loginWithFirebase(firebaseToken);
       goToMain(session);
     } catch (err) {
-      if (err.status === 401) {
-        Alert.alert('Wrong OTP', 'The code is incorrect or has expired. Tap "Resend OTP" to get a new one.');
+      const msg = err?.message || '';
+      if (msg.includes('invalid-verification-code') || msg.includes('INVALID_CODE')) {
+        Alert.alert('Wrong OTP', 'The code is incorrect or has expired. Tap "Resend" to get a new one.');
+      } else if (err?.status === 404 || msg.includes('No EarnSafe account')) {
+        Alert.alert(
+          'Phone not registered',
+          'This phone number is not linked to any EarnSafe account.\n\nPlease register first or use the phone number you signed up with.',
+        );
+      } else if (err?.status === 401) {
+        Alert.alert('Authentication failed', msg || 'Could not verify your identity.');
       } else {
-        Alert.alert('Verification failed', err.message);
+        Alert.alert('Verification failed', msg || 'Something went wrong. Please try again.');
       }
     } finally {
       setLoading(false);
     }
   }
 
-  // ── Password login → reveals linked phone, offers OTP ──────────────────
+  // ── Password login (secondary) ────────────────────────────────────────────
   async function handlePasswordLogin() {
     if (!username.trim() || !password) return;
     setLoading(true);
     try {
       const session = await loginUser({ username: username.trim().toLowerCase(), password });
-      // If they have a phone linked, show it and offer OTP switch
-      if (session?.phone) {
-        setLoggedInSession(session);
-        setPhone(session.phone);
-        setFlow(FLOW.PHONE_CONFIRM);
-      } else {
-        goToMain(session);
-      }
+      goToMain(session);
     } catch (err) {
       Alert.alert('Unable to sign in', err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ── After password login, user confirms their phone and gets OTP ────────
-  async function handleConfirmPhone() {
-    // Phone already pre-filled from session — just send OTP
-    setLoading(true);
-    setDebugOtp(null);
-    try {
-      const res = await sendOtp(phone.trim());
-      if (res?.debug_otp) {
-        setDebugOtp(res.debug_otp);
-        setOtp(res.debug_otp);
-      }
-      setFlow(FLOW.OTP);
-    } catch (err) {
-      Alert.alert('Could not send OTP', err.message);
     } finally {
       setLoading(false);
     }
@@ -193,7 +175,7 @@ export default function ExistingUserScreen({ navigation }) {
               <>
                 <Text style={styles.flowTitle}>Welcome back</Text>
                 <Text style={styles.flowSubtitle}>
-                  Enter the mobile number you registered with to receive a login code.
+                  Enter your registered mobile number. We'll send a one-time code via SMS.
                 </Text>
                 <Field
                   label="Mobile number (10 digits)"
@@ -218,19 +200,9 @@ export default function ExistingUserScreen({ navigation }) {
               <>
                 <Text style={styles.flowTitle}>Enter OTP</Text>
                 <Text style={styles.flowSubtitle}>
-                  A 6-digit code was sent to {phone}.{'\n'}It expires in 5 minutes.
+                  A 6-digit code was sent to +91{phone.trim().replace(/\D/g, '')}.{'\n'}
+                  It expires in a few minutes.
                 </Text>
-
-                {/* Dev mode banner — shown only when debug_otp is present */}
-                {debugOtp ? (
-                  <View style={[styles.debugBanner, { borderColor: colors.accent }]}>
-                    <Text style={styles.debugLabel}>🧪 Dev mode — OTP auto-filled</Text>
-                    <Text style={[styles.debugOtp, { color: colors.accent }]}>{debugOtp}</Text>
-                    <Text style={styles.debugNote}>
-                      No SMS gateway is configured. This code is returned by the API for testing only.
-                    </Text>
-                  </View>
-                ) : null}
 
                 <Field
                   label="6-digit OTP"
@@ -241,7 +213,7 @@ export default function ExistingUserScreen({ navigation }) {
                   maxLength={6}
                   textContentType="oneTimeCode"
                   autoComplete="sms-otp"
-                  autoFocus={!debugOtp}
+                  autoFocus
                 />
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, { backgroundColor: colors.accent }, pressed && styles.pressed]}
@@ -253,7 +225,7 @@ export default function ExistingUserScreen({ navigation }) {
 
                 <Pressable
                   style={styles.linkRow}
-                  onPress={() => { setOtp(''); setDebugOtp(null); setFlow(FLOW.PHONE); }}
+                  onPress={() => { setOtp(''); setConfirmation(null); setFlow(FLOW.PHONE); }}
                 >
                   <Text style={[styles.linkText, { color: colors.accent }]}>← Change number / resend OTP</Text>
                 </Pressable>
@@ -265,7 +237,7 @@ export default function ExistingUserScreen({ navigation }) {
               <>
                 <Text style={styles.flowTitle}>Sign in with password</Text>
                 <Text style={styles.flowSubtitle}>
-                  After signing in you'll see which phone is linked to your account.
+                  Use your username and password to access your account.
                 </Text>
                 <Field label="Username" value={username} onChange={setUsername} placeholder="ravi_kumar" />
                 <Field label="Password" value={password} onChange={setPassword} placeholder="••••••••" secureTextEntry />
@@ -278,33 +250,6 @@ export default function ExistingUserScreen({ navigation }) {
                 </Pressable>
                 <Pressable style={styles.linkRow} onPress={() => setFlow(FLOW.PHONE)}>
                   <Text style={[styles.linkText, { color: colors.accent }]}>← Use OTP login instead</Text>
-                </Pressable>
-              </>
-            )}
-
-            {/* ─── PHONE CONFIRM (after password login) ─── */}
-            {flow === FLOW.PHONE_CONFIRM && (
-              <>
-                <Text style={styles.flowTitle}>Your phone number</Text>
-                <Text style={styles.flowSubtitle}>
-                  Your account is linked to this number. Send an OTP to continue, or go straight to the app.
-                </Text>
-                <View style={[styles.phoneDisplay, { borderColor: colors.accent }]}>
-                  <Text style={styles.phoneDisplayLabel}>Phone on file</Text>
-                  <Text style={[styles.phoneDisplayValue, { color: colors.accent }]}>{phone}</Text>
-                </View>
-                <Pressable
-                  style={({ pressed }) => [styles.primaryBtn, { backgroundColor: colors.accent }, pressed && styles.pressed]}
-                  onPress={handleConfirmPhone}
-                  disabled={loading}
-                >
-                  <Text style={styles.primaryBtnText}>{loading ? 'Sending OTP…' : `Send OTP to ${phone}`}</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.primaryBtn, { backgroundColor: colors.navy700, marginTop: 10 }]}
-                  onPress={() => goToMain(loggedInSession)}
-                >
-                  <Text style={styles.primaryBtnText}>Continue without OTP →</Text>
                 </Pressable>
               </>
             )}
@@ -354,22 +299,6 @@ const styles = StyleSheet.create({
     height: 52, paddingHorizontal: 16, color: '#FFFFFF', fontSize: 15,
   },
   inputHint: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 },
-
-  debugBanner: {
-    borderWidth: 1, borderRadius: 8, padding: 12,
-    backgroundColor: 'rgba(16,185,129,0.08)', marginBottom: 16,
-  },
-  debugLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
-  debugOtp: { fontSize: 28, fontWeight: '900', letterSpacing: 4, marginBottom: 4 },
-  debugNote: { color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 },
-
-  phoneDisplay: {
-    borderWidth: 1.5, borderRadius: 8, padding: 16, marginBottom: 20,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  phoneDisplayLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
-  phoneDisplayValue: { fontSize: 22, fontWeight: '800', letterSpacing: 1 },
-
   primaryBtn: { borderRadius: 8, height: 54, justifyContent: 'center', alignItems: 'center', marginTop: 8 },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   pressed: { opacity: 0.8 },

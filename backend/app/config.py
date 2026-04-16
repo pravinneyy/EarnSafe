@@ -4,9 +4,6 @@ from typing import Literal
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-MSG91_SEND_OTP_URL = "https://control.msg91.com/api/v5/otp"
-MSG91_VERIFY_OTP_URL = "https://control.msg91.com/api/v5/otp/verify"
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -47,20 +44,23 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
 
-    # ── SMS / OTP gateway (MSG91) ──────────────────────────────────────────
-    # Set these env vars to send real SMS via MSG91.
-    # If not set, the OTP is returned in the API response as 'debug_otp'
-    # (only shown when no gateway is configured, regardless of environment).
-    msg91_api_key: SecretStr | None = None
-    msg91_template_id: str | None = None      # MSG91 OTP template ID
-    msg91_sender_id: str = "EARNSAFE"         # Registered Sender ID on MSG91
-    msg91_otp_expiry_minutes: int = 5         # must match OTP_TTL_SECONDS / 60
+    # ── Firebase Phone Auth ────────────────────────────────────────────────
+    # FIREBASE_SERVICE_ACCOUNT_JSON: base64-encoded Firebase service account JSON
+    # Get it from: Firebase Console → Project Settings → Service accounts → Generate key
+    # Then run: base64 -w0 service-account.json (Linux/macOS) or
+    #           [Convert]::ToBase64String([IO.File]::ReadAllBytes("service-account.json")) (PowerShell)
+    firebase_service_account_json: SecretStr | None = None  # base64-encoded JSON
+    firebase_project_id: str | None = None                  # used for token verification fallback
 
     @computed_field
     @property
-    def sms_gateway_configured(self) -> bool:
-        """True when MSG91 credentials are fully set."""
-        return bool(self.msg91_api_key and self.msg91_template_id)
+    def celery_effective_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @computed_field
+    @property
+    def celery_effective_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -76,16 +76,6 @@ class Settings(BaseSettings):
         if database_url.startswith("postgres://"):
             return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
         return database_url
-
-    @computed_field
-    @property
-    def effective_celery_broker_url(self) -> str:
-        return self.celery_broker_url or self.redis_url
-
-    @computed_field
-    @property
-    def effective_celery_result_backend(self) -> str:
-        return self.celery_result_backend or self.redis_url
 
 
 @lru_cache

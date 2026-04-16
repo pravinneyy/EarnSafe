@@ -11,14 +11,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.insuranceapp.app"
+      "bundleIdentifier": "com.insuranceapp.app",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F5F1EA"
       },
-      "package": "com.insuranceapp.app"
+      "package": "com.insuranceapp.app",
+      "googleServicesFile": "./google-services.json"
     },
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
+    ],
     "extra": {
       "eas": {
         "projectId": "4e1dd71c-4834-4ca0-bc20-41ad2f559421"

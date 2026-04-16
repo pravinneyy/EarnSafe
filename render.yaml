@@ -35,15 +35,12 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
-      # ── SMS / OTP Gateway (MSG91) ──────────────────────────────────────
-      # Set these in the Render dashboard to enable real SMS delivery.
-      # Leave unset to use debug_otp mode (OTP returned in API response).
-      - key: MSG91_API_KEY
+      # ── Firebase Phone Auth ────────────────────────────────────────────
+      # base64-encoded service account JSON (Firebase Console → Service accounts)
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false
-      - key: MSG91_TEMPLATE_ID
+      - key: FIREBASE_PROJECT_ID
         sync: false
-      - key: MSG91_SENDER_ID
-        value: EARNSAFE
   - name: earnsafe-redis
     type: keyvalue
     plan: free
