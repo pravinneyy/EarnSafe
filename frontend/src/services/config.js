@@ -61,11 +61,7 @@ export function getApiBaseUrl() {
     return cachedApiBaseUrl;
   }
 
-  if (__DEV__) {
-    cachedApiBaseUrl = `http://${getReachableDevHost()}:${DEFAULT_PORT}`;
-    return cachedApiBaseUrl;
-  }
-
+  // Always use the Render backend, even in local dev mode
   cachedApiBaseUrl = PRODUCTION_API_BASE_URL;
   return cachedApiBaseUrl;
 }
