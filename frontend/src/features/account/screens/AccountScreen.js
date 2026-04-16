@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
+import { getAuth, signOut } from '@react-native-firebase/auth';
 
 import {
   AppButton,
@@ -16,7 +17,8 @@ export default function AccountScreen({ navigation, route }) {
   const { user, policy } = route.params || {};
   const { isDark, toggleTheme, colors } = useTheme();
 
-  function handleSignOut() {
+  async function handleSignOut() {
+    try { await signOut(getAuth()); } catch (_) { /* already signed out */ }
     navigation.getParent()?.reset({
       index: 0,
       routes: [{ name: 'ExistingUser' }],

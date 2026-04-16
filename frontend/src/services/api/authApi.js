@@ -34,6 +34,18 @@ export async function loginUser(body) {
   return session;
 }
 
+// ── Mock phone OTP login ──────────────────────────────────────────────────
+export async function loginWithPhone(phone, otp) {
+  const session = await request('/auth/phone-login', {
+    method: 'POST',
+    body: { phone, otp },
+  });
+  if (session?.access_token) {
+    setAuthToken(session.access_token);
+  }
+  return session;
+}
+
 // ── Session ───────────────────────────────────────────────────────────────
 
 /** Returns full user profile from JWT — used for session restore on app start */
