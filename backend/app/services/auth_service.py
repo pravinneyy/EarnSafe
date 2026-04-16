@@ -38,11 +38,10 @@ def _generate_otp(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 
-async def _send_sms_msg91(phone: str, otp: str) -> None:
+async def _send_sms_msg91(phone: str, otp: str) -> bool:
     """
     Send a real SMS via MSG91's OTP API.
-    Docs: https://docs.msg91.com/reference/send-otp
-    Raises ValidationError if the gateway returns an error.
+    Returns True on success, False on any failure (caller falls back to debug_otp).
     """
     settings = get_settings()
     api_key = settings.msg91_api_key.get_secret_value() if settings.msg91_api_key else ""
@@ -57,22 +56,34 @@ async def _send_sms_msg91(phone: str, otp: str) -> None:
     if settings.msg91_template_id:
         payload["template_id"] = settings.msg91_template_id
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(MSG91_SEND_OTP_URL, json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(MSG91_SEND_OTP_URL, json=payload)
 
-    if response.status_code != 200:
+        if response.status_code != 200:
+            logger.error(
+                "MSG91 OTP send failed — falling back to debug_otp",
+                extra={"phone": phone, "status": response.status_code, "body": response.text},
+            )
+            return False
+
+        data = response.json()
+        if data.get("type") != "success":
+            logger.error(
+                "MSG91 OTP rejected — falling back to debug_otp",
+                extra={"phone": phone, "response": data},
+            )
+            return False
+
+        logger.info("MSG91 OTP sent successfully", extra={"phone": phone})
+        return True
+
+    except Exception as exc:
         logger.error(
-            "MSG91 OTP send failed",
-            extra={"phone": phone, "status": response.status_code, "body": response.text},
+            "MSG91 request exception — falling back to debug_otp",
+            extra={"phone": phone, "error": str(exc)},
         )
-        raise ValidationError(f"SMS gateway error: {response.text}")
-
-    data = response.json()
-    if data.get("type") != "success":
-        logger.error("MSG91 OTP send rejected", extra={"phone": phone, "response": data})
-        raise ValidationError(f"SMS gateway rejected: {data.get('message', 'Unknown error')}")
-
-    logger.info("MSG91 OTP sent successfully", extra={"phone": phone})
+        return False
 
 
 class AuthService:
@@ -204,17 +215,24 @@ class AuthService:
         }
 
         if settings.sms_gateway_configured:
-            # ── Real SMS via MSG91 ────────────────────────────────────────
-            await _send_sms_msg91(phone, otp)
-            logger.info("AuthService: OTP dispatched via MSG91", extra={"phone": phone})
+            # ── Try real SMS via MSG91 ────────────────────────────────────
+            sms_sent = await _send_sms_msg91(phone, otp)
+            if sms_sent:
+                logger.info("AuthService: OTP dispatched via MSG91", extra={"phone": phone})
+            else:
+                # MSG91 failed (template not approved, quota, etc.) — fall back
+                response["debug_otp"] = otp
+                response["message"] = "OTP ready (SMS delivery failed — use the code below)"
+                logger.warning(
+                    "AuthService: MSG91 failed — debug_otp exposed as fallback",
+                    extra={"phone": phone},
+                )
         else:
-            # ── No SMS gateway — return OTP in response for dev/testing ──
-            # This is the fallback when MSG91 is not configured.
-            # Wire up MSG91_API_KEY + MSG91_TEMPLATE_ID in env to send real SMS.
+            # ── No SMS gateway configured — return OTP for testing ────────
             response["debug_otp"] = otp
             logger.warning(
-                "AuthService: No SMS gateway configured — debug_otp included in response. "
-                "Set MSG91_API_KEY + MSG91_TEMPLATE_ID env vars to send real SMS.",
+                "AuthService: No SMS gateway configured — debug_otp in response. "
+                "Set MSG91_API_KEY + MSG91_TEMPLATE_ID to send real SMS.",
                 extra={"phone": phone, "otp": otp},
             )
 

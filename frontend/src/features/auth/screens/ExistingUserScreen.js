@@ -28,7 +28,7 @@ const FLOW = {
 // ── Field component — MUST be at module scope (not inside render) ──────────
 // Defining it inside a component causes React to remount the TextInput on
 // every keystroke (new function ref = new component type), dismissing keyboard.
-function Field({ label, value, onChange, placeholder, keyboardType, maxLength, secureTextEntry, hint }) {
+function Field({ label, value, onChange, placeholder, keyboardType, maxLength, secureTextEntry, hint, textContentType, autoComplete, autoFocus }) {
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
@@ -43,6 +43,9 @@ function Field({ label, value, onChange, placeholder, keyboardType, maxLength, s
         value={value}
         onChangeText={onChange}
         returnKeyType="done"
+        textContentType={textContentType}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus || false}
       />
       {hint ? <Text style={styles.inputHint}>{hint}</Text> : null}
     </View>
@@ -236,6 +239,9 @@ export default function ExistingUserScreen({ navigation }) {
                   placeholder="482931"
                   keyboardType="number-pad"
                   maxLength={6}
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  autoFocus={!debugOtp}
                 />
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, { backgroundColor: colors.accent }, pressed && styles.pressed]}
