@@ -236,13 +236,14 @@ class AuthService:
             if sms_sent:
                 logger.info("AuthService: OTP dispatched via MSG91", extra={"phone": phone})
             else:
-                # MSG91 failed (template not approved, quota, etc.) — fall back
-                response["debug_otp"] = otp
-                response["message"] = "OTP ready (SMS delivery failed — use the code below)"
                 logger.warning(
                     "AuthService: MSG91 failed — debug_otp exposed as fallback",
                     extra={"phone": phone},
                 )
+            # Always include debug_otp until SMS delivery is confirmed
+            # (MSG91 may report success but carrier may block if DLT unregistered)
+            # Remove this once DLT registration is complete and SMS is verified end-to-end.
+            response["debug_otp"] = otp
         else:
             # ── No SMS gateway configured — return OTP for testing ────────
             response["debug_otp"] = otp
