@@ -4,6 +4,9 @@ from typing import Literal
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MSG91_SEND_OTP_URL = "https://control.msg91.com/api/v5/otp"
+MSG91_VERIFY_OTP_URL = "https://control.msg91.com/api/v5/otp/verify"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -43,6 +46,21 @@ class Settings(BaseSettings):
 
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
+
+    # ── SMS / OTP gateway (MSG91) ──────────────────────────────────────────
+    # Set these env vars to send real SMS via MSG91.
+    # If not set, the OTP is returned in the API response as 'debug_otp'
+    # (only shown when no gateway is configured, regardless of environment).
+    msg91_api_key: SecretStr | None = None
+    msg91_template_id: str | None = None      # MSG91 OTP template ID
+    msg91_sender_id: str = "EARNSAFE"         # Registered Sender ID on MSG91
+    msg91_otp_expiry_minutes: int = 5         # must match OTP_TTL_SECONDS / 60
+
+    @computed_field
+    @property
+    def sms_gateway_configured(self) -> bool:
+        """True when MSG91 credentials are fully set."""
+        return bool(self.msg91_api_key and self.msg91_template_id)
 
     @field_validator("database_url", mode="before")
     @classmethod

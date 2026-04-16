@@ -2,6 +2,7 @@ import logging
 import random
 import string
 
+import httpx
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas import UserCreate, UserLogin
 from app.security import create_access_token, hash_password, verify_password
 from app.models import User
-from app.config import get_settings
+from app.config import MSG91_SEND_OTP_URL, get_settings
 from app.services.exceptions import AuthenticationError, ConflictError, NotFoundError, RateLimitError, ValidationError
 from app.services.wallet_service import WalletService
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 OTP_TTL_SECONDS = 300        # OTP expires in 5 minutes
 OTP_REDIS_PREFIX = "otp:"
-OTP_RATE_PREFIX = "otp_rate:"  # rate-limit counter key prefix
+OTP_RATE_PREFIX = "otp_rate:)"  # rate-limit counter key prefix
 OTP_MAX_REQUESTS = 3           # max OTP sends per rate window
 OTP_RATE_WINDOW = 300          # rate window = 5 minutes (matches OTP TTL)
 
@@ -35,6 +36,43 @@ def _risk_score(city: str, platform: str) -> float:
 
 def _generate_otp(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
+
+
+async def _send_sms_msg91(phone: str, otp: str) -> None:
+    """
+    Send a real SMS via MSG91's OTP API.
+    Docs: https://docs.msg91.com/reference/send-otp
+    Raises ValidationError if the gateway returns an error.
+    """
+    settings = get_settings()
+    api_key = settings.msg91_api_key.get_secret_value() if settings.msg91_api_key else ""
+
+    payload = {
+        "authkey": api_key,
+        "mobile": f"91{phone}",          # MSG91 expects country code prefix
+        "otp": otp,
+        "otp_expiry": settings.msg91_otp_expiry_minutes,
+        "sender": settings.msg91_sender_id,
+    }
+    if settings.msg91_template_id:
+        payload["template_id"] = settings.msg91_template_id
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(MSG91_SEND_OTP_URL, json=payload)
+
+    if response.status_code != 200:
+        logger.error(
+            "MSG91 OTP send failed",
+            extra={"phone": phone, "status": response.status_code, "body": response.text},
+        )
+        raise ValidationError(f"SMS gateway error: {response.text}")
+
+    data = response.json()
+    if data.get("type") != "success":
+        logger.error("MSG91 OTP send rejected", extra={"phone": phone, "response": data})
+        raise ValidationError(f"SMS gateway rejected: {data.get('message', 'Unknown error')}")
+
+    logger.info("MSG91 OTP sent successfully", extra={"phone": phone})
 
 
 class AuthService:
@@ -121,8 +159,13 @@ class AuthService:
     async def send_otp(self, phone: str) -> dict:
         """
         Primary auth: generates a 6-digit OTP stored in Redis with a 5-min TTL.
+
+        SMS delivery behaviour:
+          - If MSG91_API_KEY + MSG91_TEMPLATE_ID are set → real SMS is sent.
+          - If not configured → OTP is returned in the API response as 'debug_otp'
+            so the app can complete login without a real SMS gateway.
+
         Rate-limited: max 3 requests per 5-minute window per phone.
-        In production replace the logger call with an actual SMS gateway.
         """
         if not self.redis:
             raise ValidationError("OTP service is unavailable (Redis not configured)")
@@ -153,26 +196,28 @@ class AuthService:
         pipe.expire(rate_key, OTP_RATE_WINDOW)
         await pipe.execute()
 
-        # Production: replace with actual SMS dispatch (Twilio, MSG91, etc.)
-        logger.info(
-            "AuthService: OTP generated (mock — replace with SMS gateway)",
-            extra={"phone": phone, "otp": otp},   # REMOVE otp from log in production!
-        )
-
         settings = get_settings()
         response: dict = {
             "message": "OTP sent successfully",
             "phone": phone,
             "expires_in": OTP_TTL_SECONDS,
         }
-        # In non-production, expose the OTP in the response for development/testing.
-        # Remove this in production or when a real SMS gateway is wired up.
-        if settings.environment != "production":
+
+        if settings.sms_gateway_configured:
+            # ── Real SMS via MSG91 ────────────────────────────────────────
+            await _send_sms_msg91(phone, otp)
+            logger.info("AuthService: OTP dispatched via MSG91", extra={"phone": phone})
+        else:
+            # ── No SMS gateway — return OTP in response for dev/testing ──
+            # This is the fallback when MSG91 is not configured.
+            # Wire up MSG91_API_KEY + MSG91_TEMPLATE_ID in env to send real SMS.
             response["debug_otp"] = otp
             logger.warning(
-                "AuthService: debug_otp exposed in API response — ONLY safe in non-production!",
-                extra={"phone": phone},
+                "AuthService: No SMS gateway configured — debug_otp included in response. "
+                "Set MSG91_API_KEY + MSG91_TEMPLATE_ID env vars to send real SMS.",
+                extra={"phone": phone, "otp": otp},
             )
+
         return response
 
     async def verify_otp(self, phone: str, otp: str) -> dict:

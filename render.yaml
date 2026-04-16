@@ -35,6 +35,15 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # ── SMS / OTP Gateway (MSG91) ──────────────────────────────────────
+      # Set these in the Render dashboard to enable real SMS delivery.
+      # Leave unset to use debug_otp mode (OTP returned in API response).
+      - key: MSG91_API_KEY
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      - key: MSG91_SENDER_ID
+        value: EARNSAFE
   - name: earnsafe-redis
     type: keyvalue
     plan: free
