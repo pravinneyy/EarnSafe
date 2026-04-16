@@ -47,9 +47,11 @@ class PolicyStatus(str, Enum):
 
 
 class ClaimStatus(str, Enum):
-    pending = "pending"
-    approved = "approved"
-    flagged = "flagged"
+    triggered = "triggered"   # auto-created by trigger engine
+    pending = "pending"       # manual submission, awaiting review
+    approved = "approved"     # validated, ready for payout
+    paid = "paid"             # wallet credited
+    flagged = "flagged"       # fraud review
     rejected = "rejected"
     processing = "processing"
 
@@ -90,11 +92,15 @@ class User(Base, TimestampMixin):
     weekly_income: Mapped[float] = mapped_column(Float, nullable=False)
     risk_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Tracks last policy change for weekly rate-limiting
+    last_policy_change_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     policies: Mapped[list["Policy"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     claims: Mapped[list["Claim"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     trigger_events: Mapped[list["TriggerEvent"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    wallet: Mapped["Wallet | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    wallet_transactions: Mapped[list["WalletTransaction"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Policy(Base, TimestampMixin):
@@ -104,6 +110,7 @@ class Policy(Base, TimestampMixin):
         CheckConstraint("daily_coverage >= 0", name="ck_policies_daily_coverage_non_negative"),
         CheckConstraint("max_weekly_payout >= daily_coverage", name="ck_policies_max_weekly_gte_daily"),
         Index("ix_policies_user_status", "user_id", "status"),
+        # Enforce one active policy per user at DB level (partial unique index)
         Index(
             "uq_policies_one_active_per_user",
             "user_id",
@@ -131,25 +138,71 @@ class Policy(Base, TimestampMixin):
 class Claim(Base, TimestampMixin):
     __tablename__ = "claims"
     __table_args__ = (
-        CheckConstraint("hours_lost > 0 AND hours_lost <= 24", name="ck_claims_hours_lost_range"),
         CheckConstraint("claim_amount > 0", name="ck_claims_claim_amount_positive"),
         Index("ix_claims_user_status", "user_id", "status"),
         Index("ix_claims_policy_created_at", "policy_id", "created_at"),
+        Index("ix_claims_user_created_at", "user_id", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     policy_id: Mapped[int] = mapped_column(ForeignKey("policies.id", ondelete="CASCADE"), nullable=False)
+    trigger_event_id: Mapped[int | None] = mapped_column(ForeignKey("trigger_events.id", ondelete="SET NULL"), nullable=True)
     disruption_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    hours_lost: Mapped[float] = mapped_column(Float, nullable=False)
+    hours_lost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     claim_amount: Mapped[float] = mapped_column(Float, nullable=False)
     fraud_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     status: Mapped[ClaimStatus] = mapped_column(SqlEnum(ClaimStatus), default=ClaimStatus.pending, nullable=False)
+    # "auto" = created by TriggerEngine, "manual" = submitted via API
+    source: Mapped[str] = mapped_column(String(10), default="manual", nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="claims")
     policy: Mapped["Policy"] = relationship(back_populates="claims")
+    wallet_transaction: Mapped["WalletTransaction | None"] = relationship(back_populates="claim", uselist=False)
+
+
+class Wallet(Base):
+    """One wallet per user. Balance stored as Numeric(10,2) for financial precision."""
+    __tablename__ = "wallets"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_wallets_user_id"),
+        CheckConstraint("balance >= 0", name="ck_wallets_balance_non_negative"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    balance: Mapped[float] = mapped_column(Numeric(10, 2), default=0.00, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="wallet")
+
+
+class WalletTransaction(Base):
+    """
+    Idempotency log for wallet credits.
+    claim_id is UNIQUE — guarantees one credit per claim even on Celery retry.
+    """
+    __tablename__ = "wallet_transactions"
+    __table_args__ = (
+        UniqueConstraint("claim_id", name="uq_wallet_transactions_claim_id"),
+        Index("ix_wallet_transactions_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    claim_id: Mapped[int] = mapped_column(ForeignKey("claims.id", ondelete="CASCADE"), nullable=False, unique=True)
+    amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user: Mapped["User"] = relationship(back_populates="wallet_transactions")
+    claim: Mapped["Claim"] = relationship(back_populates="wallet_transaction")
 
 
 class Payment(Base, TimestampMixin):
@@ -191,12 +244,15 @@ class TriggerEvent(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_trigger_events_user_status", "user_id", "status"),
         Index("ix_trigger_events_zone_created_at", "zone", "created_at"),
+        Index("ix_trigger_events_unprocessed", "status", "eligible_for_claim"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(String(40), default=lambda: f"evt_{uuid4().hex[:16]}", nullable=False, unique=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     policy_id: Mapped[int | None] = mapped_column(ForeignKey("policies.id", ondelete="SET NULL"))
+    # Set when a claim is created for this event — prevents duplicate claims
+    claim_id: Mapped[int | None] = mapped_column(ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
     zone: Mapped[str] = mapped_column(String(80), nullable=False)
     event_type: Mapped[str] = mapped_column(String(40), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)

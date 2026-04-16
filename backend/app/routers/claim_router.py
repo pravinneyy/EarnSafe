@@ -9,6 +9,16 @@ from app.services.exceptions import AuthorizationError, NotFoundError, Validatio
 router = APIRouter(prefix="/claims", tags=["Claims"])
 
 
+@router.get(
+    "/",
+    response_model=list[ClaimResponse],
+    summary="Get my claims",
+    description="Returns all claims for the authenticated user, ordered newest first.",
+)
+async def get_my_claims(session: DbSession, current_user: User = Depends(get_current_user)):
+    return await ClaimService(session).get_user_claims(current_user.id)
+
+
 @router.post("/submit", response_model=ClaimResponse, status_code=201)
 async def submit_claim(claim: ClaimCreate, session: DbSession, current_user: User = Depends(get_current_user)):
     if current_user.id != claim.user_id:

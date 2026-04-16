@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
-import { getUserClaims } from '../../../services/api';
+import { getUserClaims, getWallet } from '../../../services/api';
 import {
   AppCard,
   Screen,
@@ -21,42 +23,79 @@ import {
 } from '../../../shared/utils/format';
 import ClaimListItem from '../components/ClaimListItem';
 
+const POLL_MS = 10_000;
+
 export default function ClaimHistoryScreen({ route }) {
-  const { user, policy } = route.params || {};
+  const { user } = route.params || {};
   const [claims, setClaims] = useState([]);
+  const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { colors } = useTheme();
+  const pollRef = useRef(null);
+  const prevBalance = useRef(null);
+  const balancePulse = useRef(new Animated.Value(1)).current;
 
-  async function loadClaims() {
-    if (!user?.id) return;
+  // ── Load both wallet and claims ────────────────────────────────────
+  async function loadData() {
     try {
-      const data = await getUserClaims(user.id);
-      setClaims([...data].sort((a, b) => b.id - a.id));
+      const [claimsData, walletData] = await Promise.all([
+        getUserClaims(),
+        getWallet(),
+      ]);
+
+      // Sort newest first
+      setClaims([...claimsData].sort((a, b) =>
+        new Date(b.created_at) - new Date(a.created_at)
+      ));
+
+      // Pulse on balance change
+      if (walletData) {
+        const newBalance = Number(walletData.balance);
+        if (prevBalance.current !== null && prevBalance.current !== newBalance) {
+          Animated.sequence([
+            Animated.timing(balancePulse, { toValue: 1.15, duration: 200, useNativeDriver: true }),
+            Animated.timing(balancePulse, { toValue: 1, duration: 200, useNativeDriver: true }),
+          ]).start();
+        }
+        prevBalance.current = newBalance;
+        setWallet(walletData);
+      }
+    } catch (_) {
+      // Silent fail on background polls — user will see stale data
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadClaims();
-  }, [user?.id]);
-
   async function handleRefresh() {
     setRefreshing(true);
-    await loadClaims();
+    await loadData();
     setRefreshing(false);
   }
 
-  const approvedClaims = claims.filter(c => c.status === 'approved');
-  const totalPaid = approvedClaims.reduce((s, c) => s + c.claim_amount, 0);
-  const approvalRatio = claims.length === 0 ? 0 : approvedClaims.length / claims.length;
+  // ── Poll while screen is focused ───────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      loadData();
+      pollRef.current = setInterval(loadData, POLL_MS);
+      return () => {
+        clearInterval(pollRef.current);
+      };
+    }, [])
+  );
+
+  // ── Derived stats ──────────────────────────────────────────────────
+  const paidClaims = claims.filter(c => c.status === 'paid' || c.status === 'approved');
+  const totalPaid = paidClaims.reduce((s, c) => s + Number(c.claim_amount), 0);
+  const approvalRatio = claims.length === 0 ? 0 : paidClaims.length / claims.length;
 
   if (loading) {
     return (
       <Screen scroll={false} contentStyle={styles.loadingState}>
         <ActivityIndicator color={colors.accent} size="large" />
-        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading claims...</Text>
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading wallet…</Text>
       </Screen>
     );
   }
@@ -77,19 +116,51 @@ export default function ClaimHistoryScreen({ route }) {
         subtitle={`Automated payouts for ${user?.name || 'you'}.`}
       />
 
-      {/* Summary Stats */}
+      {/* ── Wallet Balance Card ────────────────────────────────────── */}
+      {wallet ? (
+        <View style={[styles.walletCard, {
+          backgroundColor: colors.navy800,
+          borderColor: colors.borderNavy || 'rgba(255,255,255,0.1)',
+        }]}>
+          <Text style={styles.walletLabel}>Current Balance</Text>
+          <Animated.Text style={[
+            styles.walletBalance,
+            { color: '#34D399', transform: [{ scale: balancePulse }] },
+          ]}>
+            ₹{Number(wallet.balance).toFixed(2)}
+          </Animated.Text>
+          <Text style={styles.walletUpdated}>
+            Updated: {new Date(wallet.updated_at).toLocaleTimeString('en-IN', {
+              hour: '2-digit', minute: '2-digit',
+            })}
+          </Text>
+          <View style={styles.liveRow}>
+            <View style={[styles.liveDot, { backgroundColor: colors.accent }]} />
+            <Text style={styles.liveText}>Live · refreshes every 10s</Text>
+          </View>
+        </View>
+      ) : (
+        <AppCard variant="muted">
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+            Wallet not found. Activate a policy to create your wallet.
+          </Text>
+        </AppCard>
+      )}
+
+      {/* ── Summary Stats ──────────────────────────────────────────── */}
       <View style={styles.statsRow}>
-        <StatCard label="Total paid" value={formatCurrency(totalPaid)} accent />
-        <StatCard label="Claims" value={`${claims.length}`} />
+        <StatCard label="Total earned" value={formatCurrency(totalPaid)} accent />
+        <StatCard label="Total claims" value={`${claims.length}`} />
       </View>
       <View style={styles.statsRow}>
-        <StatCard label="Approved" value={`${approvedClaims.length}`} />
-        <StatCard label="Approval rate" value={formatPercentFromRatio(approvalRatio)} />
+        <StatCard label="Paid" value={`${paidClaims.length}`} />
+        <StatCard label="Success rate" value={formatPercentFromRatio(approvalRatio)} />
       </View>
 
+      {/* ── Claims List ────────────────────────────────────────────── */}
       <SectionHeading
         title="Claim history"
-        subtitle="All automatic claim activity."
+        subtitle="Automatic claim activity — no action needed from you."
         style={styles.claimsHeading}
       />
 
@@ -98,8 +169,8 @@ export default function ClaimHistoryScreen({ route }) {
           <Text style={styles.emptyIcon}>📭</Text>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>No claims yet</Text>
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            Once a verified disruption triggers protection, the generated claim
-            will show up here with payout and review status.
+            When a weather disruption is detected in your delivery zone, a claim
+            is automatically triggered and the payout is added to your wallet.
           </Text>
         </AppCard>
       ) : (
@@ -112,14 +183,11 @@ export default function ClaimHistoryScreen({ route }) {
 function StatCard({ label, value, accent = false }) {
   const { colors } = useTheme();
   return (
-    <View style={[
-      styles.statCard,
-      {
-        backgroundColor: accent ? colors.navy800 : colors.surface,
-        borderColor: accent ? colors.borderNavy : colors.borderLight,
-      },
-    ]}>
-      <Text style={[styles.statValue, { color: accent ? colors.emerald400 : colors.text }]}>
+    <View style={[styles.statCard, {
+      backgroundColor: accent ? colors.navy800 : colors.surface,
+      borderColor: accent ? (colors.borderNavy || 'rgba(255,255,255,0.1)') : (colors.borderLight || '#E2E8F0'),
+    }]}>
+      <Text style={[styles.statValue, { color: accent ? '#34D399' : colors.text }]}>
         {value}
       </Text>
       <Text style={[styles.statLabel, { color: accent ? '#94A3B8' : colors.textSecondary }]}>
@@ -133,13 +201,32 @@ const styles = StyleSheet.create({
   screenContent: { paddingTop: spacing.lg },
   loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { fontSize: 14, marginTop: spacing.md },
+
+  walletCard: {
+    borderRadius: radii.lg || 12,
+    borderWidth: 1,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    ...shadows.elevated,
+  },
+  walletLabel: {
+    color: '#94A3B8', fontSize: 12, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6,
+  },
+  walletBalance: { fontSize: 42, fontWeight: '800', letterSpacing: -1, marginBottom: 4 },
+  walletUpdated: { color: '#64748B', fontSize: 12, marginBottom: 8 },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { color: '#64748B', fontSize: 11 },
+
   statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   statCard: {
-    flex: 1, borderRadius: radii.md, padding: spacing.md,
+    flex: 1, borderRadius: radii.md || 8, padding: spacing.md,
     borderWidth: 1, ...shadows.sm,
   },
   statValue: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
   statLabel: { fontSize: 13, fontWeight: '500' },
+
   claimsHeading: { marginTop: spacing.lg },
   emptyIcon: { fontSize: 32, textAlign: 'center', marginBottom: spacing.sm },
   emptyTitle: { fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: spacing.xs },

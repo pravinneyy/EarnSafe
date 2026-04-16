@@ -22,5 +22,10 @@ class ValidationError(ServiceError):
     pass
 
 
+class RateLimitError(ServiceError):
+    """Raised when a rate limit is exceeded (e.g. OTP requests)."""
+    pass
+
+
 class IntegrationError(ServiceError):
     pass

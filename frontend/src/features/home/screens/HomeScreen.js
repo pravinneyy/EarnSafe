@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -12,8 +12,10 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { getWeatherBundle } from '../../../services/api/weatherApi';
+import { getMe } from '../../../services/api';
 import { AppPill } from '../../../shared/components';
 import LiveMap from '../../../shared/components/LiveMap';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
@@ -165,11 +167,27 @@ const lightMapStyle = [
 // Main Home Screen
 // ───────────────────────────────────────────────
 export default function HomeScreen({ route }) {
-  const { user, policy } = route.params || {};
+  const routeUser = route.params?.user;
+  const routePolicy = route.params?.policy;
+  const [user, setUser] = useState(routeUser || null);
+  const [policy, setPolicy] = useState(routePolicy || null);
   const [weather, setWeather] = useState(null);
   const [airQuality, setAirQuality] = useState(null);
   const [forecast, setForecast] = useState([]);
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Reload user/policy on every tab focus — handles session restore, tab switches,
+  // and cases where the navigation params were never populated.
+  useFocusEffect(
+    useCallback(() => {
+      getMe().then(session => {
+        if (session?.id) {
+          setUser(session);
+          setPolicy(session.active_policy || null);
+        }
+      }).catch(() => {});
+    }, [])
+  );
 
   const mapRef = useRef(null);
   const { isDark, colors: c } = useTheme();

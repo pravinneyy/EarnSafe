@@ -1,11 +1,13 @@
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_]{3,30}$"
 PHONE_PATTERN = r"^\d{10}$"
+OTP_PATTERN = r"^\d{6}$"
 
 
 class PlatformType(str, Enum):
@@ -29,6 +31,10 @@ class DisruptionType(str, Enum):
     dense_fog = "dense_fog"
     curfew = "curfew"
 
+
+# ---------------------------------------------------------------------------
+# Auth schemas
+# ---------------------------------------------------------------------------
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=30, pattern=USERNAME_PATTERN, example="ravi_kumar")
@@ -61,6 +67,31 @@ class UserLogin(BaseModel):
         return value.strip().lower()
 
 
+class OTPSendRequest(BaseModel):
+    """Primary auth: request a one-time password to be sent to a phone number."""
+    phone: str = Field(..., pattern=PHONE_PATTERN, example="9876543210")
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def strip_phone(cls, v: str) -> str:
+        return v.strip()
+
+
+class OTPVerifyRequest(BaseModel):
+    """Verify the OTP received on phone and receive a JWT token."""
+    phone: str = Field(..., pattern=PHONE_PATTERN, example="9876543210")
+    otp: str = Field(..., pattern=OTP_PATTERN, example="482931")
+
+    @field_validator("phone", "otp", mode="before")
+    @classmethod
+    def strip_fields(cls, v: str) -> str:
+        return v.strip()
+
+
+# ---------------------------------------------------------------------------
+# User / session schemas
+# ---------------------------------------------------------------------------
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -73,11 +104,6 @@ class UserResponse(BaseModel):
     platform: str
     weekly_income: float
     risk_score: float
-
-
-class PolicyCreate(BaseModel):
-    user_id: int
-    plan_tier: PlanTier
 
 
 class PolicyResponse(BaseModel):
@@ -94,12 +120,61 @@ class PolicyResponse(BaseModel):
     expires_at: datetime | None = None
 
 
+class WalletResponse(BaseModel):
+    """Wallet balance — Decimal stored for precision, serialized as float in JSON."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    balance: Decimal
+    updated_at: datetime
+
+    @field_serializer("balance")
+    def serialize_balance(self, value: Decimal) -> float:
+        return float(value)
+
+
 class UserSessionResponse(UserResponse):
+    """Returned on login / register / OTP verify."""
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    wallet_balance: Decimal = Decimal("0.00")
     active_policy: Optional[PolicyResponse] = None
 
+    @field_serializer("wallet_balance")
+    def serialize_wallet_balance(self, value: Decimal) -> float:
+        return float(value)
+
+
+class MeResponse(UserResponse):
+    """Full profile for GET /me — current user from JWT."""
+    wallet_balance: Decimal = Decimal("0.00")
+    active_policy: Optional[PolicyResponse] = None
+    last_policy_change_at: Optional[datetime] = None
+
+    @field_serializer("wallet_balance")
+    def serialize_wallet_balance(self, value: Decimal) -> float:
+        return float(value)
+
+
+# ---------------------------------------------------------------------------
+# Policy schemas
+# ---------------------------------------------------------------------------
+
+class PolicyCreate(BaseModel):
+    user_id: int
+    plan_tier: PlanTier
+
+
+class PolicyChangeRequest(BaseModel):
+    """Request body for POST /policy/change."""
+    plan_tier: PlanTier
+
+
+# ---------------------------------------------------------------------------
+# Payment schemas
+# ---------------------------------------------------------------------------
 
 class PaymentQuoteCreate(BaseModel):
     user_id: int
@@ -168,6 +243,10 @@ class PaymentWebhookPayload(BaseModel):
     payload: dict[str, Any]
 
 
+# ---------------------------------------------------------------------------
+# Claim schemas
+# ---------------------------------------------------------------------------
+
 class ClaimCreate(BaseModel):
     user_id: int
     policy_id: int
@@ -182,13 +261,20 @@ class ClaimResponse(BaseModel):
     id: int
     user_id: int
     policy_id: int
+    trigger_event_id: Optional[int] = None
     disruption_type: str
     hours_lost: float
     claim_amount: float
     fraud_score: float
     status: str
+    source: str = "manual"           # "auto" | "manual"
     reason: Optional[str] = None
+    created_at: datetime
 
+
+# ---------------------------------------------------------------------------
+# Trigger event schema
+# ---------------------------------------------------------------------------
 
 class TriggerEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -197,6 +283,7 @@ class TriggerEventResponse(BaseModel):
     public_id: str
     user_id: int
     policy_id: int | None
+    claim_id: int | None
     zone: str
     event_type: str
     severity: str

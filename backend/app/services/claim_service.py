@@ -20,6 +20,10 @@ class ClaimService:
         self.user_repo = UserRepository(session)
 
     async def submit_claim(self, payload: ClaimCreate) -> Claim:
+        """
+        Manual claim submission by a user via API.
+        Applies fraud scoring. For parametric auto-claims use TriggerEngine.
+        """
         user = await self.user_repo.get_by_id(payload.user_id)
         if not user:
             raise NotFoundError("User not found")

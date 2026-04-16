@@ -9,6 +9,14 @@ function getLocalDevHost() {
   return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 }
 
+function getReachableDevHost() {
+  const bundlerHost = getBundlerHost();
+  if (bundlerHost && !INVALID_CLIENT_HOSTS.has(bundlerHost)) {
+    return bundlerHost;
+  }
+  return getLocalDevHost();
+}
+
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, '');
 }
@@ -24,7 +32,7 @@ function normalizeBaseUrl(value) {
   try {
     const url = new URL(normalized);
     if (INVALID_CLIENT_HOSTS.has(url.hostname)) {
-      url.hostname = getLocalDevHost();
+      url.hostname = getReachableDevHost();
     }
     return stripTrailingSlash(url.toString());
   } catch {
@@ -54,13 +62,7 @@ export function getApiBaseUrl() {
   }
 
   if (__DEV__) {
-    const bundlerHost = getBundlerHost();
-    if (bundlerHost) {
-      cachedApiBaseUrl = `http://${bundlerHost}:${DEFAULT_PORT}`;
-      return cachedApiBaseUrl;
-    }
-
-    cachedApiBaseUrl = `http://${getLocalDevHost()}:${DEFAULT_PORT}`;
+    cachedApiBaseUrl = `http://${getReachableDevHost()}:${DEFAULT_PORT}`;
     return cachedApiBaseUrl;
   }
 

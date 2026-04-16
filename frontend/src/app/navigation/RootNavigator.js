@@ -99,6 +99,7 @@ export default function RootNavigator() {
         <MainStack.Screen name="Splash" component={SplashScreen} />
         <MainStack.Screen name="ExistingUser" component={ExistingUserScreen} />
         <MainStack.Screen name="Register" component={RegisterScreen} />
+        {/* PlanSelect kept as a named screen for backwards-compat deep links */}
         <MainStack.Screen name="PlanSelect" component={PlanSelectScreen} />
         <MainStack.Screen name="Main" component={MainTabs} />
       </MainStack.Navigator>

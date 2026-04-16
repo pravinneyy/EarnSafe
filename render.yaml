@@ -10,7 +10,7 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: DEBUG
+      - key: APP_DEBUG
         value: "false"
       - key: DATABASE_URL
         fromDatabase:

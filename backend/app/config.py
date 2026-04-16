@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, SecretStr, computed_field, field_validator
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     app_name: str = "EarnSafe API"
     app_version: str = "2.0.0"
     environment: Literal["local", "development", "staging", "production"] = "development"
-    debug: bool = False
+    debug: bool = Field(default=False, validation_alias=AliasChoices("APP_DEBUG"))
     api_prefix: str = "/api"
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 

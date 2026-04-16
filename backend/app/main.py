@@ -7,7 +7,7 @@ from redis.asyncio import Redis
 from app.config import get_settings
 from app.database import init_db
 from app.middleware.logging import RequestLoggingMiddleware, configure_logging
-from app.routers import claim_router, payment_router, policy_router, user_router, weather_router
+from app.routers import auth_router, claim_router, health_router, payment_router, policy_router, user_router, weather_router
 
 
 @asynccontextmanager
@@ -38,11 +38,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(user_router.router)
-app.include_router(policy_router.router)
-app.include_router(payment_router.router)
-app.include_router(claim_router.router)
-app.include_router(weather_router.router)
+# Health + liveness (registered first so it's never behind auth middleware)
+app.include_router(health_router)
+
+# Auth endpoints — primary (OTP) + secondary (password)
+app.include_router(auth_router)
+
+# User profile + wallet
+app.include_router(user_router)
+
+# Policy management
+app.include_router(policy_router)
+
+# Payment + Razorpay integration
+app.include_router(payment_router)
+
+# Claims (manual submission + query)
+app.include_router(claim_router)
+
+# Weather / environmental data
+app.include_router(weather_router)
 
 
 @app.get("/", tags=["Health"])

@@ -15,8 +15,27 @@ class TriggerEventRepository:
         return event
 
     async def list_pending(self) -> list[TriggerEvent]:
+        """Detected events not yet processed (legacy method, kept for compat)."""
         result = await self.session.execute(
             select(TriggerEvent).where(TriggerEvent.status == TriggerEventStatus.detected).order_by(TriggerEvent.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_eligible_unprocessed(self) -> list[TriggerEvent]:
+        """
+        Fetch trigger events that are:
+          - status = detected (not yet processed)
+          - eligible_for_claim = True
+          - claim_id IS NULL (no claim created yet — dedup guard)
+        """
+        result = await self.session.execute(
+            select(TriggerEvent)
+            .where(
+                TriggerEvent.status == TriggerEventStatus.detected,
+                TriggerEvent.eligible_for_claim.is_(True),
+                TriggerEvent.claim_id.is_(None),
+            )
+            .order_by(TriggerEvent.id.asc())
         )
         return list(result.scalars().all())
 

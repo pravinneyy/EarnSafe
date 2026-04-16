@@ -3,6 +3,8 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import { spacing } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
+import { getAuthToken } from '../../../services/http';
+import { getMe } from '../../../services/api';
 
 export default function SplashScreen({ navigation }) {
   const { colors } = useTheme();
@@ -87,8 +89,27 @@ export default function SplashScreen({ navigation }) {
       ]),
     ]);
 
-    introAnimation.start(({ finished }) => {
-      if (finished && !cancelled) {
+    introAnimation.start(async ({ finished }) => {
+      if (!finished || cancelled) return;
+
+      // ── Session restore ──────────────────────────────────────────────
+      // If a stored JWT exists, verify it by calling GET /users/me.
+      // Valid → go straight to Main dashboard.
+      // Invalid / no token → go to login screen.
+      const token = getAuthToken();
+      if (token) {
+        try {
+          const session = await getMe();
+          if (!cancelled && session?.id) {
+            navigation.replace('Main', { user: session, policy: session.active_policy });
+            return;
+          }
+        } catch (_) {
+          // Token expired or invalid — fall through to login
+        }
+      }
+
+      if (!cancelled) {
         navigation.replace('ExistingUser');
       }
     });
