@@ -40,30 +40,45 @@ def _generate_otp(length: int = 6) -> str:
 
 async def _send_sms_msg91(phone: str, otp: str) -> bool:
     """
-    Send a real SMS via MSG91's OTP API.
+    Send a real SMS via MSG91's OTP API v5.
     Returns True on success, False on any failure (caller falls back to debug_otp).
+
+    MSG91 v5 OTP API:
+      POST https://control.msg91.com/api/v5/otp
+      Header: authkey = YOUR_AUTH_KEY
+      Body (JSON): { template_id, mobile (with country code), otp }
     """
     settings = get_settings()
-    api_key = settings.msg91_api_key.get_secret_value() if settings.msg91_api_key else ""
+    if not settings.msg91_api_key:
+        return False
 
-    payload = {
-        "authkey": api_key,
-        "mobile": f"91{phone}",          # MSG91 expects country code prefix
-        "otp": otp,
-        "otp_expiry": settings.msg91_otp_expiry_minutes,
-        "sender": settings.msg91_sender_id,
+    api_key = settings.msg91_api_key.get_secret_value()
+
+    headers = {
+        "authkey": api_key,          # MSG91 requires authkey in the HEADER, not the body
+        "Content-Type": "application/json",
+        "Accept": "application/json",
     }
-    if settings.msg91_template_id:
-        payload["template_id"] = settings.msg91_template_id
+    payload = {
+        "template_id": settings.msg91_template_id,
+        "mobile": f"91{phone}",      # India country code prefix
+        "otp": otp,
+    }
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(MSG91_SEND_OTP_URL, json=payload)
+            response = await client.post(MSG91_SEND_OTP_URL, headers=headers, json=payload)
+
+        body = response.text
+        logger.info(
+            "MSG91 OTP response",
+            extra={"phone": phone, "status": response.status_code, "body": body},
+        )
 
         if response.status_code != 200:
             logger.error(
                 "MSG91 OTP send failed — falling back to debug_otp",
-                extra={"phone": phone, "status": response.status_code, "body": response.text},
+                extra={"phone": phone, "status": response.status_code, "body": body},
             )
             return False
 
@@ -84,6 +99,7 @@ async def _send_sms_msg91(phone: str, otp: str) -> bool:
             extra={"phone": phone, "error": str(exc)},
         )
         return False
+
 
 
 class AuthService:
