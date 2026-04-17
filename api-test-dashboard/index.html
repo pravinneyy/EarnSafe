@@ -192,12 +192,18 @@
 
         async function sendSim(active) {
         const endpoint = active ? '/admin/start-simulation' : '/admin/stop-simulation';
-        const payload = active ? {
-            temp: document.getElementById('in-temp').value,
-            rain: document.getElementById('in-rain').value,
-            aqi: document.getElementById('in-aqi').value,
-            traffic: document.getElementById('in-traffic').value // Send typed traffic
-        } : {};
+        const payload = {
+            lat: document.getElementById('lat').value,
+            lon: document.getElementById('lon').value,
+            zone: "Chennai",
+            tier: "standard",
+            ...(active ? {
+                temp: document.getElementById('in-temp').value,
+                rain: document.getElementById('in-rain').value,
+                aqi: document.getElementById('in-aqi').value,
+                traffic: document.getElementById('in-traffic').value
+            } : {})
+        };
 
             try {
                 const res = await fetch(API_URL + endpoint, {
@@ -208,32 +214,44 @@
                 
                 if(res.ok) { 
                     const data = await res.json();
-                    updateUIResults(active); }
+                    updateUIResults(active, data); }
             } catch (e) { alert("Error connecting to backend"); }
         }
 
         function updateUIResults(isSimulating, backendData) {
-    
-    const risk = backendData ? backendData.ai_risk_score : "0.0000";
-    const disrupt = backendData?.parametric_analysis?.is_disrupted ? "YES" : "NO";
-             document.getElementById('res-risk').innerText = risk;
+    const risk = typeof backendData?.ai_risk_score === 'number'
+        ? backendData.ai_risk_score.toFixed(4)
+        : "0.0000";
+    const isDisrupted = Boolean(backendData?.parametric_analysis?.is_disrupted);
+    const disrupt = isDisrupted ? "YES" : "NO";
+    const source = backendData?.parametric_analysis?.source || (isSimulating ? "simulation-active" : "open-meteo");
+
+    document.getElementById('res-risk').innerText = risk;
     document.getElementById('res-disrupt').innerText = disrupt;
-            document.getElementById('res-source').innerText = isSimulating ? "Simulation Grid" : "Real API";
+    document.getElementById('res-disrupt').className = isDisrupted ? "text-red-500" : "text-green-500";
+    document.getElementById('res-source').innerText = source;
 
             const statusIcon = document.getElementById('status-icon');
             const statusTitle = document.getElementById('status-title');
+            const statusDesc = document.getElementById('status-desc');
             const sysStatus = document.getElementById('sys-status');
 
-            if(isSimulating) {
+            if(isDisrupted) {
                 statusIcon.innerText = "🚨";
                 statusTitle.innerText = "Disruption Active";
                 statusTitle.className = "font-black text-red-600 text-[10px] uppercase tracking-widest";
-                sysStatus.innerText = "Simulation Active";
-                sysStatus.classList.replace('bg-blue-500/50', 'bg-red-500');
+                statusDesc.innerText = backendData?.active_disruption || "Payout conditions met";
             } else {
                 statusIcon.innerText = "☀️";
                 statusTitle.innerText = "Safe Conditions";
                 statusTitle.className = "font-black text-slate-400 text-[10px] uppercase tracking-widest";
+                statusDesc.innerText = "No Payout Required";
+            }
+
+            if(isSimulating) {
+                sysStatus.innerText = "Simulation Active";
+                sysStatus.classList.replace('bg-blue-500/50', 'bg-red-500');
+            } else {
                 sysStatus.innerText = "System Active";
                 sysStatus.classList.replace('bg-red-500', 'bg-blue-500/50');
             }
