@@ -16,7 +16,6 @@ from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.services.exceptions import IntegrationError
-from app.services.traffic_service import get_traffic_status
 
 # --- ADMIN SIMULATION STATE ---
 SYSTEM_SIMULATION = {
@@ -462,20 +461,8 @@ async def get_live_risk_data(
         pm25 = override_pm25 if override_pm25 is not None else round(float(curr_a.get("pm2_5", 20.0) or 20.0), 1)
         pm10 = round(float(curr_a.get("pm10", pm25 * 1.35) or (pm25 * 1.35)), 1)
         aqi_eu = int(curr_a.get("european_aqi", max(1, min(5, int(round(pm25 / 20)))) ) or max(1, min(5, int(round(pm25 / 20)))))
+        traffic_score = 0.4
         source = "manual-override" if manual_override_active else "open-meteo"
-        traffic_info = None
-
-        if settings.tomtom_api_key and not manual_override_active:
-            try:
-                traffic_info = await get_traffic_status(lat, lon)
-            except Exception as traffic_error:
-                logger.warning("Traffic API fetch failed: %s", traffic_error)
-
-        if traffic_info is not None:
-            traffic_score = float(traffic_info.get("congestion_level", 0)) / 100.0
-        else:
-            traffic_score = float(SYSTEM_SIMULATION["traffic"]) / 100.0 if SYSTEM_SIMULATION["active"] else 0.4
-
         if sim_rain is not None:
             wmo = 65 if rain_mm > 15 else 61 if rain_mm > 0 else 1
         else:
@@ -517,7 +504,6 @@ async def get_live_risk_data(
     traffic = {
         "congestion_score": round(traffic_score, 2),
         "source": source,
-        **(traffic_info or {}),
     }
 
     return {

@@ -188,40 +188,27 @@ class TriggerEngine:
         
         # Default coverage from policy
         base_coverage = Decimal(str(policy.daily_coverage))
-        payload_triggers = event.payload.get("triggers", {}) if isinstance(event.payload, dict) else {}
-        trigger_total = Decimal(str(payload_triggers.get("total_fixed_payout", 0)))
-
-        traffic_congestion_pct = Decimal("0")
-        parametric_data = event.payload.get("parametric_analysis", {}) if isinstance(event.payload, dict) else {}
-        if isinstance(parametric_data.get("traffic_congestion"), (int, float, str)):
-            try:
-                traffic_congestion_pct = Decimal(str(parametric_data.get("traffic_congestion")))
-            except Exception:
-                traffic_congestion_pct = Decimal("0")
-
-        if trigger_total > Decimal("0"):
-            effective_coverage = min(base_coverage, trigger_total)
-            coverage_source = "trigger_total"
-        elif traffic_congestion_pct > Decimal("0"):
-            congestion_ratio = min(traffic_congestion_pct / Decimal("100"), Decimal("1.0"))
-            effective_coverage = base_coverage * max(congestion_ratio, Decimal("0.25"))
-            coverage_source = "traffic_congestion"
+        
+        # TRAFFIC INTEGRATION:
+        if event.event_type == "traffic":
+            # Extract coords from the event payload
+            lat = event.payload.get("lat")
+            lon = event.payload.get("lon")
+            
+            if lat and lon:
+                traffic = await get_traffic_status(lat, lon)
+                
+                if not traffic.get("is_gridlock"):
+                    logger.info("TriggerEngine: skipping - Traffic not high enough for payout")
+                    return "cap_exhausted"
+                
+                # Adjust payout based on how bad the traffic is (e.g., 80% congestion = 80% of daily cap)
+                congestion_multiplier = Decimal(str(traffic.get("congestion_level", 0) / 100))
+                effective_coverage = base_coverage * congestion_multiplier
+            else:
+                effective_coverage = base_coverage
         else:
-            effective_coverage = base_coverage * Decimal("0.40")
-            coverage_source = "base_coverage"
-
-        logger.info(
-            "TriggerEngine: computed claim coverage",
-            extra={
-                "event_id": event.id,
-                "user_id": user_id,
-                "base_coverage": str(base_coverage),
-                "trigger_total": str(trigger_total),
-                "traffic_congestion_pct": str(traffic_congestion_pct),
-                "coverage_source": coverage_source,
-                "effective_coverage": str(effective_coverage),
-            },
-        )
+            effective_coverage = base_coverage
 
         # Compute final claim amount — capped at weekly remaining budget
         claim_amount = min(effective_coverage, remaining_cap)

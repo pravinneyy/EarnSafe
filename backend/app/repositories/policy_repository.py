@@ -29,6 +29,12 @@ class PolicyRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_all_active(self) -> list[Policy]:
+        result = await self.session.execute(
+            select(Policy).options(selectinload(Policy.user)).where(Policy.status == PolicyStatus.active)
+        )
+        return list(result.scalars().all())
+
     async def list_for_user(self, user_id: int) -> list[Policy]:
         result = await self.session.execute(select(Policy).where(Policy.user_id == user_id).order_by(Policy.id.desc()))
         return list(result.scalars().all())
