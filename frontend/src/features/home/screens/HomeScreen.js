@@ -275,34 +275,36 @@ export default function HomeScreen({ route }) {
   // ── Load weather + AQI + Forecast ──────────────
 // --- Updated useEffect in HomeScreen.js ---
 // --- Updated useEffect in HomeScreen.js ---
+// --- Inside HomeScreen.js ---
+
 useEffect(() => {
   if (!locationKey || !location) return;
 
-  let isActive = true;
-
   async function fetchData() {
-    try {
-      const bundle = await getWeatherBundle(location.latitude, location.longitude);
-      if (!isActive || !bundle) return;
-      
-      setWeather(bundle);
-      setAirQuality(bundle);
-      setForecast(bundle.forecast || []);
-    } catch (_) {
-      console.log('Error loading weather/AQI');
-    }
+    // ... your existing fetching logic ...
   }
 
+  // 1. Initial Fetch
   fetchData();
 
-  // CHANGE: Set to 3000ms for 3-second updates
-  const pollingInterval = setInterval(() => {
-    fetchData();
-  }, 3000); 
+  // 2. WEBSOCKET FOR INSTANT UPDATES
+  const wsUrl = `wss://earnsafe-backend.onrender.com/ws/simulation`;
+  const ws = new WebSocket(wsUrl);
+
+  ws.onmessage = (e) => {
+    const message = JSON.parse(e.data);
+    if (message.type === "REFRESH_DATA") {
+      console.log("⚡ INSTANT UPDATE TRIGGERED");
+      fetchData(); // Run instantly!
+    }
+  };
+
+  // 3. Keep polling as a backup (every 10s)
+  const backupPoll = setInterval(fetchData, 10000);
 
   return () => {
-    isActive = false;
-    clearInterval(pollingInterval);
+    ws.close();
+    clearInterval(backupPoll);
   };
 }, [locationKey]);
 

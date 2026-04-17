@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.middleware.logging import RequestLoggingMiddleware, configure_logging
 from app.routers import auth_router, claim_router, health_router, payment_router, policy_router, user_router, weather_router, admin_router
-
+from fastapi import WebSocket, WebSocketDisconnect
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,3 +66,33 @@ app.include_router(admin_router.router)
 @app.get("/", tags=["Health"])
 async def health():
     return {"status": "ok", "service": settings.app_name, "version": settings.app_version}
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/simulation")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text() # Keep connection alive
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+# Make manager accessible to routers
+app.state.manager = manager
