@@ -2,9 +2,9 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 PLAN_CONFIG = {
-    "basic": {"premium": 29.0, "daily_coverage": 300.0, "max_weekly": 1500.0},
-    "standard": {"premium": 49.0, "daily_coverage": 500.0, "max_weekly": 2500.0},
-    "pro": {"premium": 89.0, "daily_coverage": 800.0, "max_weekly": 4000.0},
+    "basic": {"premium": 29.0, "daily_coverage": 150.0, "max_weekly": 800.0},
+    "standard": {"premium": 49.0, "daily_coverage": 300.0, "max_weekly": 1500.0},
+    "pro": {"premium": 89.0, "daily_coverage": 500.0, "max_weekly": 2500.0},
 }
 
 
