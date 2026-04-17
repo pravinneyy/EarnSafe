@@ -196,7 +196,7 @@ class TriggerEngine:
             lon = event.payload.get("lon")
             
             if lat and lon:
-                traffic = get_traffic_status(lat, lon)
+                traffic = await get_traffic_status(lat, lon)
                 
                 if not traffic.get("is_gridlock"):
                     logger.info("TriggerEngine: skipping - Traffic not high enough for payout")
