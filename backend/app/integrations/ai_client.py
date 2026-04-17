@@ -259,6 +259,16 @@ def _weather_label_from_wmo(code: int | None) -> str:
     return _WMO_LABELS.get(code, "Unknown")
 
 
+def _pm25_from_aqi_override(aqi_override: float | None) -> float | None:
+    if aqi_override is None:
+        return None
+    normalized_value = round(max(float(aqi_override), 0.0), 1)
+    # Treat small values as the 1-5 demo AQI slider, otherwise as direct PM2.5.
+    if normalized_value <= 5:
+        return round(normalized_value * 25.0, 1)
+    return normalized_value
+
+
 def _to_unix_timestamp(value: str) -> int:
     return int(pd.Timestamp(value).tz_localize("Asia/Kolkata").tz_convert(timezone.utc).timestamp())
 
@@ -381,8 +391,19 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
     }
 
 
-async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None) -> dict[str, Any]:
+async def get_live_risk_data(
+    *,
+    lat: float,
+    lon: float,
+    zone: str = "Chennai",
+    tier: str = "standard",
+    redis: Redis | None = None,
+    sim_temp: float | None = None,
+    sim_aqi: float | None = None,
+    sim_rain: float | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
+    manual_override_active = any(value is not None for value in (sim_temp, sim_aqi, sim_rain))
     
     # --- STEP 1: INITIALIZE DEFAULT VALUES ---
     # This prevents 'NameError' or 'UnboundLocalError' if APIs fail
@@ -407,8 +428,8 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
             )
     except Exception as error:
         logger.warning("API Fetch Failed: %s. Using simulation or fallback.", error)
-        # If simulation is NOT active, we return the fallback immediately
-        if not SYSTEM_SIMULATION["active"]:
+        # Manual overrides can still build a usable response without live APIs.
+        if not SYSTEM_SIMULATION["active"] and not manual_override_active:
             return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
 
     # --- STEP 3: CONSTRUCT THE WEATHER OBJECTS ---
@@ -426,12 +447,16 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
         # Use REAL API DATA (Safe access with defaults)
         curr_w = weather_payload.get("current", {})
         curr_a = aqi_payload.get("current", {})
-        temp_c = round(curr_w.get("temperature_2m", 28.0), 1)
-        rain_mm = round(curr_w.get("rain", 0.0), 1)
-        pm25 = round(curr_a.get("pm2_5", 20.0) or 20.0, 1)
+        override_pm25 = _pm25_from_aqi_override(sim_aqi)
+        temp_c = round(float(sim_temp) if sim_temp is not None else curr_w.get("temperature_2m", 28.0), 1)
+        rain_mm = round(float(sim_rain) if sim_rain is not None else curr_w.get("rain", 0.0), 1)
+        pm25 = override_pm25 if override_pm25 is not None else round(curr_a.get("pm2_5", 20.0) or 20.0, 1)
         traffic_score = 0.4
-        source = "open-meteo"
-        wmo = curr_w.get("weather_code", 0)
+        source = "manual-override" if manual_override_active else "open-meteo"
+        if sim_rain is not None:
+            wmo = 65 if rain_mm > 15 else 61 if rain_mm > 0 else 1
+        else:
+            wmo = curr_w.get("weather_code", 0)
         humidity = curr_w.get("relative_humidity_2m", 60)
         wind = round(curr_w.get("wind_speed_10m", 10.0), 1)
 
