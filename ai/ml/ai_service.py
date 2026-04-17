@@ -1,22 +1,3 @@
-"""
-EarnSafe AI Engine — Phase 2
-==============================
-Handles everything AI/ML needs for Phase 2:
-
-1. Live data fetching (Open-Meteo weather + AQI, mock traffic)
-2. 5 parametric triggers with fixed ₹ payouts (true parametric)
-3. CatBoost dynamic premium using hyper-local risk factors
-4. IsolationForest fraud detection (rules-based + ML)
-5. Mock showcase mode for demo without affecting real data
-
-Public functions called by the backend:
-    get_live_risk_data(lat, lon)              → fetch all live data + evaluate triggers
-    predict_risk(zone, delivery_persona, tier) → premium (backwards compatible)
-    predict_risk_with_weather(...)             → premium with real weather inputs
-    evaluate_triggers(weather_data)            → which triggers fired + fixed payouts
-    detect_claim_anomaly(...)                  → fraud check
-    get_mock_scenario(scenario_name)           → demo showcase data
-"""
 
 import logging
 import pickle

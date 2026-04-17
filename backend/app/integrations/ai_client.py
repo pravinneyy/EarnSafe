@@ -367,10 +367,35 @@ def predict_risk(
         except Exception as error:
             logger.warning("CatBoost inference failed, using fallback score: %s", error)
 
+    # --- Heuristic risk score computed directly from weather inputs ---
+    # The ML model was trained on limited data and under-predicts for
+    # extreme conditions. This heuristic ensures the score rises visibly
+    # when simulation sliders are pushed to high values.
+    rain_score = min(rain_mm / 100.0, 1.0)            # 0mm→0.0, 100mm→1.0
+    temp_score = max(0.0, (temp_c - 30.0) / 20.0)    # 30°C→0.0, 50°C→1.0
+    aqi_score  = min(aqi_pm25 / 150.0, 1.0)           # 0→0.0, 150µg→1.0
+    zone_flood = zone_profile.get("flood", 0.5)
+    zone_heat  = zone_profile.get("heat", 0.5)
+
+    heuristic = min(
+        rain_score  * 0.40 * (1.0 + zone_flood * 0.5) +
+        temp_score  * 0.25 * (1.0 + zone_heat  * 0.5) +
+        aqi_score   * 0.20 +
+        0.10 * zone_flood,   # baseline zone risk
+        1.0
+    )
+
+    # When the ML model gives a suspiciously low score (< 0.10),
+    # trust the heuristic. Otherwise blend 60% ML + 40% heuristic.
+    if probability < 0.10:
+        final_score = round(heuristic, 4)
+    else:
+        final_score = round(0.60 * probability + 0.40 * heuristic, 4)
+
     base_rate = _TIER_BASE_RATES.get(clean_tier, 49.0)
     return {
-        "ai_risk_score": round(probability, 4),
-        "weekly_premium_inr": round(base_rate * (1.0 + probability), 2),
+        "ai_risk_score": final_score,
+        "weekly_premium_inr": round(base_rate * (1.0 + final_score), 2),
         "zone": clean_zone,
         "active_disruption": active_disruption,
     }
