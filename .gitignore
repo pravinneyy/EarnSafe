@@ -9,3 +9,5 @@ backend/secrets.toml
 *.pyc
 .gradle
 .agent
+.vscode
+.idea
