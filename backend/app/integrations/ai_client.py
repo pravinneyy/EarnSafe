@@ -384,6 +384,8 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
 async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None) -> dict[str, Any]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout_seconds)
+    
+    # 1. Fetch real data (we do this to get the 'forecast' structure)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             weather_payload, aqi_payload = await asyncio.gather(
@@ -391,12 +393,10 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
                     client,
                     f"{settings.open_meteo_base_url}/v1/forecast",
                     params={
-                        "latitude": lat,
-                        "longitude": lon,
+                        "latitude": lat, "longitude": lon,
                         "current": ["temperature_2m", "relative_humidity_2m", "rain", "wind_speed_10m", "weather_code"],
                         "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"],
-                        "forecast_hours": 12,
-                        "timezone": "Asia/Kolkata",
+                        "forecast_hours": 12, "timezone": "Asia/Kolkata",
                     },
                     redis=redis,
                     cache_key=_cache_key("weather", {"lat": lat, "lon": lon}),
@@ -405,8 +405,7 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
                     client,
                     f"{settings.open_meteo_air_quality_base_url}/v1/air-quality",
                     params={
-                        "latitude": lat,
-                        "longitude": lon,
+                        "latitude": lat, "longitude": lon,
                         "current": ["pm2_5", "pm10", "european_aqi"],
                         "hourly": ["pm2_5", "pm10", "european_aqi"],
                         "timezone": "Asia/Kolkata",
@@ -416,51 +415,57 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
                 ),
             )
     except Exception as error:
-        logger.warning("Falling back to synthetic weather snapshot for %s,%s: %s", lat, lon, error)
+        logger.warning("Falling back to synthetic weather snapshot: %s", error)
         return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
 
+    # 2. DEFINE DATA (This handles the Simulation vs Real logic correctly)
     if SYSTEM_SIMULATION["active"]:
-        
+        # SIMULATION DATA
         weather = {
-            "temp_c": SYSTEM_SIMULATION["temp"],
+            "temp_c": float(SYSTEM_SIMULATION["temp"]),
             "humidity": 60,
-            "rain_mm": SYSTEM_SIMULATION["rain"],
+            "rain_mm": float(SYSTEM_SIMULATION["rain"]),
             "wind_kph": 10.0,
-            "wmo_code": 65 if SYSTEM_SIMULATION["rain"] > 15 else 1,
+            "wmo_code": 65 if float(SYSTEM_SIMULATION["rain"]) > 15 else 1,
             "source": "ADMIN_SIMULATION",
         }
+        # Scaling AQI 1-5 to PM2.5 (e.g., Level 4 -> 80 PM2.5)
+        sim_pm25 = float(SYSTEM_SIMULATION["aqi"] * 20)
         aqi = {
-            "pm25": SYSTEM_SIMULATION["aqi"] * 15, # Scaling 1-5 to PM2.5 levels
-            "pm10": SYSTEM_SIMULATION["aqi"] * 20,
-            "aqi_eu": SYSTEM_SIMULATION["aqi"],
+            "pm25": sim_pm25,
+            "pm10": sim_pm25 * 1.3,
+            "aqi_eu": int(SYSTEM_SIMULATION["aqi"]),
             "source": "ADMIN_SIMULATION",
         }
         traffic = {
-            "congestion_score": SYSTEM_SIMULATION["traffic"] / 100,
+            "congestion_score": float(SYSTEM_SIMULATION["traffic"] / 100),
             "source": "ADMIN_SIMULATION",
         }
     else:
+        # REAL API DATA
         current_weather = weather_payload.get("current", {})
-    current_aqi = aqi_payload.get("current", {})
-    weather = {
-        "temp_c": round(current_weather.get("temperature_2m", 30.0), 1),
-        "humidity": current_weather.get("relative_humidity_2m", 60),
-        "rain_mm": round(current_weather.get("rain", 0.0), 1),
-        "wind_kph": round(current_weather.get("wind_speed_10m", 10.0), 1),
-        "wmo_code": current_weather.get("weather_code", 0),
-        "source": "open-meteo",
-    }
-    aqi = {
-        "pm25": round(current_aqi.get("pm2_5", 0.0) or 0.0, 1),
-        "pm10": round(current_aqi.get("pm10", 0.0) or 0.0, 1),
-        "aqi_eu": current_aqi.get("european_aqi", 1) or 1,
-        "source": "open-meteo-aqi",
-    }
-    randomizer = Random(f"{lat}:{lon}:{pd.Timestamp.utcnow().hour}")
-    traffic = {
-        "congestion_score": round(min(1.0, 0.25 + randomizer.uniform(0.0, 0.55)), 2),
-        "source": "synthetic-traffic",
-    }
+        current_aqi = aqi_payload.get("current", {})
+        weather = {
+            "temp_c": round(current_weather.get("temperature_2m", 30.0), 1),
+            "humidity": current_weather.get("relative_humidity_2m", 60),
+            "rain_mm": round(current_weather.get("rain", 0.0), 1),
+            "wind_kph": round(current_weather.get("wind_speed_10m", 10.0), 1),
+            "wmo_code": current_weather.get("weather_code", 0),
+            "source": "open-meteo",
+        }
+        aqi = {
+            "pm25": round(current_aqi.get("pm2_5", 0.0) or 0.0, 1),
+            "pm10": round(current_aqi.get("pm10", 0.0) or 0.0, 1),
+            "aqi_eu": current_aqi.get("european_aqi", 1) or 1,
+            "source": "open-meteo-aqi",
+        }
+        randomizer = Random(f"{lat}:{lon}:{pd.Timestamp.utcnow().hour}")
+        traffic = {
+            "congestion_score": round(min(1.0, 0.25 + randomizer.uniform(0.0, 0.55)), 2),
+            "source": "synthetic-traffic",
+        }
+
+    # 3. EVALUATE (Using whichever data was selected above)
     zone_profile = _zone_profile(zone)
     triggers = evaluate_triggers(
         rain_mm=weather["rain_mm"],
@@ -469,10 +474,14 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
         pm25=aqi["pm25"],
         flood_risk=zone_profile["flood"],
     )
+    
+    # predict_risk will now pick up simulated reason if triggers fired
     ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
+    
     weather_condition = _weather_label_from_wmo(weather["wmo_code"])
     traffic_congestion = int(round(traffic["congestion_score"] * 100))
     forecast = _build_hourly_forecast(weather_payload, aqi_payload)
+
     return {
         "temperature": weather["temp_c"],
         "weather_condition": weather_condition,
@@ -484,15 +493,16 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
         "forecast": forecast,
         "parametric_analysis": {
             "is_disrupted": triggers["disruption_active"],
-            "disruption_reason": ai["active_disruption"],
+            "disruption_reason": ai["active_disruption"] if not triggers["disruption_active"] else "ADMIN OVERRIDE: SIMULATION",
             "traffic_congestion": traffic_congestion,
+            "source": weather["source"]
         },
         "weather": weather,
         "aqi": aqi,
         "traffic": traffic,
         "triggers": triggers,
-        "ai_risk_score": ai["ai_risk_score"],
-        "active_disruption": ai["active_disruption"],
+        "ai_risk_score": 0.95 if triggers["disruption_active"] else ai["ai_risk_score"],
+        "active_disruption": "SIMULATION ACTIVE" if triggers["disruption_active"] else ai["active_disruption"],
         "weekly_premium": ai["weekly_premium_inr"],
         "zone_risk_profile": zone_profile,
         "timestamp": pd.Timestamp.utcnow().isoformat(),
