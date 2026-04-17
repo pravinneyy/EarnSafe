@@ -16,7 +16,7 @@ async def start_sim(data: dict = Body(...)):
     SYSTEM_SIMULATION["temp"] = float(data.get("temp", 25))
     SYSTEM_SIMULATION["rain"] = float(data.get("rain", 0))
     SYSTEM_SIMULATION["aqi"] = int(data.get("aqi", 1))
-    SYSTEM_SIMULATION["traffic"] = int(data.get("traffic", 0))
+    SYSTEM_SIMULATION["traffic"] = int(data.get("traffic", 20))
     print(f"DEBUG: Simulation started with Rain: {SYSTEM_SIMULATION['rain']}mm")
     return {"status": "GLOBAL_SIMULATION_ON"}
 

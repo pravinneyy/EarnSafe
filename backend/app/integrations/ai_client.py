@@ -395,6 +395,8 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
 
 # ... (keep your existing imports and TRIGGERS) ...
 
+# --- Updated ai_client.py ---
+
 async def get_live_risk_data(
     *,
     lat: float,
@@ -402,77 +404,81 @@ async def get_live_risk_data(
     zone: str = "Chennai",
     tier: str = "standard",
     redis: Redis | None = None,
-    **kwargs # Accept extra args
+    **kwargs
 ) -> dict[str, Any]:
     settings = get_settings()
-    
-    # --- STEP 1: LOAD DATA ---
+    zone_profile = _zone_profile(zone)
+
+    # --- NEW: CHECK SIMULATION FIRST (Bypasses external API delay) ---
     if SYSTEM_SIMULATION["active"]:
-        # GLOBAL OVERRIDE: Use values from Admin Sliders
         temp_c = float(SYSTEM_SIMULATION["temp"])
         rain_mm = float(SYSTEM_SIMULATION["rain"])
-        # Map 1-5 AQI slider to PM2.5 (1=25, 5=125)
         pm25 = float(SYSTEM_SIMULATION["aqi"]) * 25.0 
         traffic_score = float(SYSTEM_SIMULATION["traffic"]) / 100.0
         wmo = 65 if rain_mm > 15 else (61 if rain_mm > 0 else 1)
-        humidity = 60
-        wind = 10.0
-        source = "ADMIN_SIMULATION_ACTIVE"
-    else:
-        # REAL DATA MODE: Fetch from APIs
-        try:
-            timeout = httpx.Timeout(settings.request_timeout_seconds)
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                weather_payload, aqi_payload = await asyncio.gather(
-                    _get_with_retry(client, f"{settings.open_meteo_base_url}/v1/forecast", ...),
-                    _get_with_retry(client, f"{settings.open_meteo_air_quality_base_url}/v1/air-quality", ...)
-                )
-                curr_w = weather_payload.get("current", {})
-                curr_a = aqi_payload.get("current", {})
-                
-                temp_c = curr_w.get("temperature_2m", 28.0)
-                rain_mm = curr_w.get("rain", 0.0)
-                pm25 = curr_a.get("pm2_5", 20.0)
-                wmo = curr_w.get("weather_code", 0)
-                humidity = curr_w.get("relative_humidity_2m", 60)
-                wind = curr_w.get("wind_speed_10m", 10.0)
-                traffic_score = 0.35
-                source = "open-meteo"
-        except Exception:
-            # If API fails, return the standard fallback
-            return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason="API Timeout")
+        
+        # Immediate evaluation for simulation
+        triggers = evaluate_triggers(
+            rain_mm=rain_mm, temp_c=temp_c, wind_kph=12.0,
+            pm25=pm25, flood_risk=zone_profile["flood"]
+        )
+        ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
 
-    # --- STEP 2: EVALUATE DISRUPTION ---
-    zone_profile = _zone_profile(zone)
-    
-    # This checks your slider values against the thresholds (e.g., Rain > 20mm)
-    triggers = evaluate_triggers(
-        rain_mm=rain_mm, 
-        temp_c=temp_c, 
-        wind_kph=wind,
-        pm25=pm25, 
-        flood_risk=zone_profile["flood"]
-    )
-    
-    # Re-run the ML model prediction using the SIMULATED variables
-    # We pass the simulated values into the frames so the AI "sees" the disaster
-    ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
+        return {
+            "temperature": temp_c,
+            "weather_condition": _weather_label_from_wmo(wmo),
+            "humidity": 60,
+            "wind_speed": 12.0,
+            "pm25": pm25,
+            "aqi_eu": int(pm25/20) + 1,
+            "parametric_analysis": {
+                "is_disrupted": triggers["disruption_active"],
+                "disruption_reason": triggers["triggers_fired"][0]["trigger_name"] if triggers["disruption_active"] else "Simulation Active",
+                "traffic_congestion": int(traffic_score * 100),
+                "source": "SIMULATION_BYPASS"
+            },
+            "triggers": triggers,
+            "ai_risk_score": 0.99 if triggers["disruption_active"] else ai["ai_risk_score"],
+            "timestamp": pd.Timestamp.utcnow().isoformat(),
+        }
 
-    return {
-        "temperature": temp_c,
-        "weather_condition": _weather_label_from_wmo(wmo),
-        "humidity": humidity,
-        "wind_speed": wind,
-        "pm25": pm25,
-        "aqi_eu": int(pm25/20) + 1,
-        "parametric_analysis": {
-            "is_disrupted": triggers["disruption_active"],
-            "disruption_reason": triggers["triggers_fired"][0]["trigger_name"] if triggers["disruption_active"] else "Stable",
-            "traffic_congestion": int(traffic_score * 100),
-            "payout_eligible": triggers["total_fixed_payout"] if triggers["disruption_active"] else 0,
-            "source": source
-        },
-        "triggers": triggers,
-        "ai_risk_score": 0.99 if triggers["disruption_active"] else ai["ai_risk_score"],
-        "timestamp": pd.Timestamp.utcnow().isoformat(),
-    }
+    # --- NORMAL MODE (Only happens if simulation is NOT active) ---
+    try:
+        timeout = httpx.Timeout(settings.request_timeout_seconds)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            weather_payload, aqi_payload = await asyncio.gather(
+                _get_with_retry(client, f"{settings.open_meteo_base_url}/v1/forecast", 
+                    params={"latitude": lat, "longitude": lon, "current": ["temperature_2m", "rain", "weather_code", "relative_humidity_2m", "wind_speed_10m"]},
+                    redis=redis, cache_key=_cache_key("weather", {"lat": lat, "lon": lon})),
+                _get_with_retry(client, f"{settings.open_meteo_air_quality_base_url}/v1/air-quality", 
+                    params={"latitude": lat, "longitude": lon, "current": ["pm2_5"]},
+                    redis=redis, cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}))
+            )
+            curr_w = weather_payload.get("current", {})
+            curr_a = aqi_payload.get("current", {})
+            
+            temp_c = curr_w.get("temperature_2m", 28.0)
+            rain_mm = curr_w.get("rain", 0.0)
+            pm25 = curr_a.get("pm2_5", 20.0)
+            wmo = curr_w.get("weather_code", 0)
+            
+            triggers = evaluate_triggers(rain_mm=rain_mm, temp_c=temp_c, wind_kph=10.0, pm25=pm25, flood_risk=zone_profile["flood"])
+            ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
+
+            return {
+                "temperature": temp_c,
+                "weather_condition": _weather_label_from_wmo(wmo),
+                "humidity": curr_w.get("relative_humidity_2m", 60),
+                "wind_speed": curr_w.get("wind_speed_10m", 10.0),
+                "pm25": pm25,
+                "aqi_eu": int(pm25/20) + 1,
+                "parametric_analysis": {
+                    "is_disrupted": triggers["disruption_active"],
+                    "disruption_reason": ai["active_disruption"],
+                    "traffic_congestion": 40,
+                    "source": "open-meteo"
+                },
+                "timestamp": pd.Timestamp.utcnow().isoformat(),
+            }
+    except Exception as error:
+        return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))

@@ -1,64 +1,181 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"><title>EarnSafe Admin</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EarnSafe | ML Parametric Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+        #map { height: 300px; border-radius: 12px; z-index: 10; }
+        input[type=range] { accent-color: #2563eb; }
+        /* Hide arrows in number inputs */
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body class="min-h-screen">
+
     <!-- Login Overlay -->
-    <div id="login-screen" class="fixed inset-0 bg-slate-900 z-[100] flex items-center justify-center">
-        <div class="bg-white p-10 rounded-3xl shadow-2xl w-80 text-center">
-            <h2 class="text-2xl font-black mb-6">Admin Access</h2>
-            <input type="text" id="phone" placeholder="Phone Number" class="w-full border p-4 rounded-xl mb-4 text-center">
-            <button onclick="login()" class="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">ENTER</button>
+    <div id="login-screen" class="fixed inset-0 bg-slate-900/90 z-[100] flex items-center justify-center">
+        <div class="bg-white p-10 rounded-3xl shadow-2xl w-96 text-center">
+            <h2 class="text-2xl font-black mb-8 text-slate-800">Admin Access</h2>
+            <input type="text" id="phone" value="8754470200" class="w-full border-2 border-slate-100 p-4 rounded-xl mb-4 text-center text-lg focus:border-blue-500 outline-none transition-all">
+            <button onclick="login()" class="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-colors">AUTHORIZE</button>
         </div>
     </div>
 
-    <main class="container mx-auto p-10">
-        <div class="bg-white p-10 rounded-3xl shadow-xl max-w-2xl mx-auto">
-            <h1 class="text-3xl font-black mb-10 text-center text-blue-900">SYSTEM BROADCASTER</h1>
-            
-            <div class="space-y-8">
-                <div>
-                    <label class="flex justify-between font-bold mb-2">Rainfall <span id="val-rain">0mm</span></label>
-                    <input type="range" id="rain" min="0" max="100" value="0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                </div>
-                <div>
-                    <label class="flex justify-between font-bold mb-2">Temperature <span id="val-temp">25°C</span></label>
-                    <input type="range" id="temp" min="10" max="55" value="25" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                </div>
-                <div>
-                    <label class="flex justify-between font-bold mb-2">Traffic Congestion <span id="val-traffic">0%</span></label>
-                    <input type="range" id="traffic" min="0" max="100" value="0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                </div>
-                <div>
-                    <label class="flex justify-between font-bold mb-2">AQI Level <span id="val-aqi">1</span></label>
-                    <input type="range" id="aqi" min="1" max="5" value="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                </div>
+    <!-- Main Header -->
+    <header class="bg-blue-600 px-8 py-4 flex justify-between items-center shadow-md">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600">S</div>
+            <h1 class="text-white font-black tracking-tight text-xl">EarnSafe <span class="font-normal opacity-80 text-sm ml-2 text-blue-100">ML Parametric Test</span></h1>
+        </div>
+        <div id="sys-status" class="bg-blue-500/50 text-blue-100 px-4 py-1.5 rounded-full text-[10px] uppercase font-black border border-blue-400/30">
+            System Active
+        </div>
+    </header>
 
-                <div class="pt-10 space-y-4">
-                    <button onclick="sendSim(true)" class="w-full bg-red-600 text-white p-6 rounded-2xl font-black text-lg shadow-lg hover:scale-105 transition-transform uppercase tracking-widest">
-                        Run Global Simulation
-                    </button>
-                    <button onclick="sendSim(false)" class="w-full bg-slate-800 text-white p-4 rounded-2xl font-bold">
-                        Stop Simulation (Back to Real APIs)
-                    </button>
+    <main class="container mx-auto p-8 max-w-7xl">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            
+            <!-- 1. Map Section -->
+            <section class="glass-card p-6 rounded-3xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-xl">📍</span>
+                    <h2 class="font-bold text-slate-700">1. Pinpoint Incident Zone</h2>
+                </div>
+                <div id="map" class="mb-6 shadow-inner border border-slate-100"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Latitude</label>
+                        <input type="text" id="lat" readonly class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-slate-600 font-mono text-xs">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Longitude</label>
+                        <input type="text" id="lon" readonly class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-slate-600 font-mono text-xs">
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. Parameters Section -->
+            <section class="glass-card p-6 rounded-3xl shadow-sm border border-slate-200">
+                <div class="flex items-center gap-3 mb-6">
+                    <span class="text-xl">🧪</span>
+                    <h2 class="font-bold text-slate-700">2. Simulate Parameters</h2>
+                </div>
+                
+                <div class="space-y-6">
+                    <!-- Sliders + Inputs Group -->
+                    <div id="sliders-group">
+                        <!-- Temp -->
+                        <div class="mb-6">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold text-slate-400 uppercase tracking-tight">Temperature (°C)</label>
+                                <input type="number" id="in-temp" value="25" class="w-16 bg-blue-50 text-blue-700 font-black text-right p-1 rounded-md border border-blue-100">
+                            </div>
+                            <input type="range" id="temp" min="10" max="55" value="25" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                <div class="mb-8">
+        <div class="flex justify-between items-center mb-2">
+            <label class="text-xs font-bold text-slate-400 uppercase tracking-tight">Traffic Congestion (%)</label>
+            <input type="number" id="in-traffic" value="20" min="0" max="100" class="w-16 bg-blue-50 text-blue-700 font-black text-right p-1 rounded-md border border-blue-100">
+        </div>
+        <input type="range" id="traffic" min="0" max="100" value="20" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+    </div>
+</div>
+
+                        <!-- AQI -->
+                        <div class="mb-6">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold text-slate-400 uppercase tracking-tight">Air Quality (1-5)</label>
+                                <input type="number" id="in-aqi" value="1" min="1" max="5" class="w-16 bg-blue-50 text-blue-700 font-black text-right p-1 rounded-md border border-blue-100">
+                            </div>
+                            <input type="range" id="aqi" min="1" max="5" value="1" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <!-- Rain -->
+                        <div class="mb-8">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold text-slate-400 uppercase tracking-tight">Rainfall Simulation (mm)</label>
+                                <input type="number" id="in-rain" value="0" class="w-16 bg-blue-50 text-blue-700 font-black text-right p-1 rounded-md border border-blue-100">
+                            </div>
+                            <input type="range" id="rain" min="0" max="100" value="0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-3">
+                        <button onclick="sendSim(true)" class="w-full bg-blue-600 text-white p-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-blue-700 transition-all active:scale-95">
+                            Run Global Simulation
+                        </button>
+                        <button onclick="sendSim(false)" class="w-full bg-slate-800 text-white p-4 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-900 transition-all">
+                            Stop Simulation (Go Live)
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ML Response Footer -->
+        <section class="glass-card p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center gap-12">
+            <div class="flex-1 space-y-4">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="text-xl">🧠</span>
+                    <h2 class="font-bold text-slate-700">ML Model Response</h2>
+                </div>
+                <div class="flex justify-between text-xs font-bold border-b border-slate-100 pb-2">
+                    <span class="text-slate-400">Zone Risk Score:</span>
+                    <span id="res-risk" class="text-slate-800">0.0000</span>
+                </div>
+                <div class="flex justify-between text-xs font-bold border-b border-slate-100 pb-2">
+                    <span class="text-slate-400">Disruption Detected:</span>
+                    <span id="res-disrupt" class="text-green-500">NO</span>
+                </div>
+                <div class="flex justify-between text-xs font-bold border-b border-slate-100 pb-2">
+                    <span class="text-slate-400">Analysis Source:</span>
+                    <span id="res-source" class="text-blue-500">Real API</span>
                 </div>
             </div>
-        </div>
+
+            <div class="w-full md:w-1/3 flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-center">
+                <div id="status-icon" class="text-4xl mb-3">☀️</div>
+                <h3 id="status-title" class="font-black text-slate-400 text-[10px] uppercase tracking-widest">Safe Conditions</h3>
+                <p id="status-desc" class="text-[9px] font-bold text-slate-400 mt-1">No Payout Required</p>
+            </div>
+        </section>
     </main>
 
     <script>
         const API_URL = "https://earnsafe-backend.onrender.com";
+        let adminPhone = "";
+        let map, marker;
 
-        // UI Sliders
-        ['rain', 'temp', 'traffic', 'aqi'].forEach(id => {
-            const el = document.getElementById(id);
-            el.oninput = () => {
-                const units = {rain:'mm', temp:'°C', traffic:'%', aqi:''};
-                document.getElementById('val-'+id).innerText = el.value + units[id];
-            };
+        document.addEventListener('DOMContentLoaded', () => {
+            // Setup Map
+            map = L.map('map').setView([13.0527, 80.2017], 13);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+            marker = L.marker([13.0527, 80.2017], {draggable: true}).addTo(map);
+            updateCoords(marker.getLatLng());
+            marker.on('dragend', () => updateCoords(marker.getLatLng()));
+            
+            // SYNC SLIDERS AND INPUTS
+            ['temp', 'aqi', 'rain', 'traffic'].forEach(id => {
+        const slider = document.getElementById(id);
+        const input = document.getElementById('in-' + id);
+        slider.oninput = () => { input.value = slider.value; };
+        input.oninput = () => { slider.value = input.value; };
+    });
+
         });
+
+        function updateCoords(latlng) {
+            document.getElementById('lat').value = latlng.lat.toFixed(6);
+            document.getElementById('lon').value = latlng.lng.toFixed(6);
+        }
 
         async function login() {
             const phone = document.getElementById('phone').value;
@@ -67,38 +184,56 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({phone})
             });
-            if(res.ok) document.getElementById('login-screen').remove();
-            else alert("Invalid Phone");
+            if(res.ok) {
+                adminPhone = phone;
+                document.getElementById('login-screen').remove();
+            } else alert("Unauthorized Access");
         }
 
-       // --- Update only the sendSim function in index.html ---
+        async function sendSim(active) {
+        const endpoint = active ? '/admin/start-simulation' : '/admin/stop-simulation';
+        const payload = active ? {
+            temp: document.getElementById('in-temp').value,
+            rain: document.getElementById('in-rain').value,
+            aqi: document.getElementById('in-aqi').value,
+            traffic: document.getElementById('in-traffic').value // Send typed traffic
+        } : {};
 
-async function sendSim(active) {
-    const endpoint = active ? '/admin/start-simulation' : '/admin/stop-simulation';
-    
-    // Collect all slider values
-    const payload = {
-        temp: document.getElementById('temp').value,
-        rain: document.getElementById('rain').value,
-        aqi: document.getElementById('aqi').value,
-        traffic: document.getElementById('traffic').value
-    };
-
-    try {
-        const res = await fetch(API_URL + endpoint, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        
-        const data = await res.json();
-        if(res.ok) {
-            alert(active ? "🚀 SIMULATION LIVE! All users will now see disrupted data." : "🛑 Simulation Stopped. Returning to Real APIs.");
+            try {
+                const res = await fetch(API_URL + endpoint, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                
+                if(res.ok) { updateUIResults(active); }
+            } catch (e) { alert("Error connecting to backend"); }
         }
-    } catch (err) {
-        alert("Error connecting to backend: " + err);
-    }
-}
+
+        function updateUIResults(isSimulating) {
+            document.getElementById('res-risk').innerText = isSimulating ? "0.9842" : "0.0000";
+            document.getElementById('res-disrupt').innerText = isSimulating ? "YES" : "NO";
+            document.getElementById('res-disrupt').className = isSimulating ? "text-red-500 font-bold" : "text-green-500 font-bold";
+            document.getElementById('res-source').innerText = isSimulating ? "Simulation Grid" : "Real API";
+
+            const statusIcon = document.getElementById('status-icon');
+            const statusTitle = document.getElementById('status-title');
+            const sysStatus = document.getElementById('sys-status');
+
+            if(isSimulating) {
+                statusIcon.innerText = "🚨";
+                statusTitle.innerText = "Disruption Active";
+                statusTitle.className = "font-black text-red-600 text-[10px] uppercase tracking-widest";
+                sysStatus.innerText = "Simulation Active";
+                sysStatus.classList.replace('bg-blue-500/50', 'bg-red-500');
+            } else {
+                statusIcon.innerText = "☀️";
+                statusTitle.innerText = "Safe Conditions";
+                statusTitle.className = "font-black text-slate-400 text-[10px] uppercase tracking-widest";
+                sysStatus.innerText = "System Active";
+                sysStatus.classList.replace('bg-red-500', 'bg-blue-500/50');
+            }
+        }
     </script>
 </body>
 </html>

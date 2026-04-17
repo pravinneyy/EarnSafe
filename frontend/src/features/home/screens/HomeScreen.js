@@ -273,30 +273,38 @@ export default function HomeScreen({ route }) {
   const locationKey = getLocationKey(location);
 
   // ── Load weather + AQI + Forecast ──────────────
-  useEffect(() => {
-    if (!locationKey || !location) return;
+// --- Updated useEffect in HomeScreen.js ---
+// --- Updated useEffect in HomeScreen.js ---
+useEffect(() => {
+  if (!locationKey || !location) return;
 
-    let isActive = true;
+  let isActive = true;
 
-    async function fetchData() {
-      try {
-        const bundle = await getWeatherBundle(location.latitude, location.longitude);
-        if (!isActive || !bundle) {
-          return;
-        }
-        setWeather(bundle);
-        setAirQuality(bundle);
-        setForecast(bundle.forecast || []);
-      } catch (_) {
-        console.log('Error loading weather/AQI');
-      }
+  async function fetchData() {
+    try {
+      const bundle = await getWeatherBundle(location.latitude, location.longitude);
+      if (!isActive || !bundle) return;
+      
+      setWeather(bundle);
+      setAirQuality(bundle);
+      setForecast(bundle.forecast || []);
+    } catch (_) {
+      console.log('Error loading weather/AQI');
     }
+  }
 
+  fetchData();
+
+  // CHANGE: Set to 3000ms for 3-second updates
+  const pollingInterval = setInterval(() => {
     fetchData();
-    return () => {
-      isActive = false;
-    };
-  }, [locationKey]);
+  }, 3000); 
+
+  return () => {
+    isActive = false;
+    clearInterval(pollingInterval);
+  };
+}, [locationKey]);
 
   // Expand Animation helper
   const toggleExpand = () => {
