@@ -138,7 +138,7 @@ export default function ExistingUserScreen({ navigation }) {
               <>
                 <Text style={styles.flowTitle}>Welcome back</Text>
                 <Text style={styles.flowSubtitle}>
-                  Enter your 10-digit registered number to get an OTP.
+                  Enter your 10-digit registered number. SMS is mocked for now.
                 </Text>
 
                 <View style={styles.inputGroup}>
@@ -164,7 +164,7 @@ export default function ExistingUserScreen({ navigation }) {
                   style={({ pressed }) => [styles.btn, { backgroundColor: colors.accent }, pressed && styles.pressed]}
                   onPress={handleSendOtp}
                 >
-                  <Text style={styles.btnText}>Send OTP</Text>
+                  <Text style={styles.btnText}>Continue</Text>
                 </Pressable>
 
                 <Pressable onPress={() => setFlow(FLOW.PASSWORD)} style={styles.altLink}>
@@ -176,7 +176,7 @@ export default function ExistingUserScreen({ navigation }) {
             {/* ─── OTP ─── */}
             {flow === FLOW.OTP && (
               <>
-                <Text style={styles.flowTitle}>Enter OTP</Text>
+                <Text style={styles.flowTitle}>Enter mock OTP</Text>
                 <Text style={styles.flowSubtitle}>
                   Enter any 6-digit code to sign in as +91 {phone}.
                 </Text>

@@ -1,6 +1,5 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
-import { getAuth, signOut } from '@react-native-firebase/auth';
 
 import {
   AppButton,
@@ -9,6 +8,7 @@ import {
   Screen,
   SectionHeading,
 } from '../../../shared/components';
+import { clearSession } from '../../../services/api';
 import { radii, shadows, spacing } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
 import { formatCurrency, toTitleCase } from '../../../shared/utils/format';
@@ -18,7 +18,7 @@ export default function AccountScreen({ navigation, route }) {
   const { isDark, toggleTheme, colors } = useTheme();
 
   async function handleSignOut() {
-    try { await signOut(getAuth()); } catch (_) { /* already signed out */ }
+    clearSession();
     navigation.getParent()?.reset({
       index: 0,
       routes: [{ name: 'ExistingUser' }],
