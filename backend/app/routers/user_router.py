@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import DbSession, get_current_user, get_redis_client
 from app.models import User
-from app.schemas import MeResponse, UserCreate, UserLogin, UserResponse, UserSessionResponse, WalletResponse
+from app.schemas import MeResponse, UserCreate, UserLogin, UserResponse, UserSessionResponse, WalletResponse, WalletSummaryResponse
 from app.services.auth_service import AuthService
 from app.services.exceptions import AuthenticationError, ConflictError, NotFoundError
 from app.services.wallet_service import WalletService
@@ -49,6 +49,20 @@ async def login_user(credentials: UserLogin, session: DbSession):
 async def get_wallet(session: DbSession, current_user: User = Depends(get_current_user)):
     try:
         return await WalletService(session).get_wallet(current_user.id)
+    except NotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.get(
+    "/wallet/summary",
+    response_model=WalletSummaryResponse,
+    tags=["Wallet"],
+    summary="Get full wallet summary",
+    description="Returns balance, weekly stats, and cap status in one call.",
+)
+async def get_wallet_summary(session: DbSession, current_user: User = Depends(get_current_user)):
+    try:
+        return await WalletService(session).get_wallet_summary(current_user.id)
     except NotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 

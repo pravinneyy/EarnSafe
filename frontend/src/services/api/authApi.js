@@ -38,3 +38,7 @@ export async function getMe() {
 export async function getWallet() {
   return request('/users/wallet');
 }
+
+export async function getWalletSummary() {
+  return request('/users/wallet/summary');
+}

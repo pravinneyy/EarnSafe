@@ -114,6 +114,18 @@ class PolicyResponse(BaseModel):
     expires_at: datetime | None = None
 
 
+class WalletSummaryResponse(BaseModel):
+    """Full wallet summary for the Wallet screen."""
+
+    balance: float
+    total_claims: int
+    weekly_earned: float           # sum of paid claims in last 7 days
+    weekly_claim_count: int        # number of paid/approved claims in last 7 days
+    max_weekly_payout: float | None  # None if no active policy
+    cap_exhausted: bool            # True when weekly_earned >= max_weekly_payout
+    updated_at: datetime
+
+
 class WalletResponse(BaseModel):
     """Wallet balance — Decimal stored for precision, serialized as float in JSON."""
     model_config = ConfigDict(from_attributes=True)
