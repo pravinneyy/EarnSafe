@@ -1,118 +1,134 @@
 """
-Mock fraud detection service.
+fraud_service.py — EarnSafe
 
-Simulates a Random Forest classifier output (fraud_score 0.0–1.0).
-Real implementation will use scikit-learn RandomForestClassifier
-trained on synthetic claims data.
+NOTE: Primary fraud scoring now lives in ClaimService.submit_claim()
+which has full async DB access, live weather verification via Open-Meteo,
+mock-location detection, speed checks and rain mismatch scoring.
 
-Now enhanced with IsolationForest ML anomaly detection from ai_service.
-
-Scoring logic mirrors what the ML model would learn:
-  - GPS mismatch with disruption zone        → high signal
-  - Claim amount exceeds plan daily coverage → hard reject
-  - Hours lost implausibly high              → high signal
-  - Repeated claims for same disruption type → medium signal
-  - Claim amount suspiciously close to max   → medium signal
-  - IsolationForest anomaly detection        → ML signal
+This module provides the standalone IsolationForest anomaly check
+that can be called from anywhere without a DB session.
 """
 
-from app.database import claims_db
-from app.services.ai_service import detect_claim_anomaly
+import logging
+import pickle
+from pathlib import Path
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+_FRAUD_MODEL_PATH = Path(__file__).resolve().parents[3] / "ai" / "ml" / "models" / "fraud_model.pkl"
+_fraud_model = None
 
 
-# Thresholds
-AUTO_APPROVE_THRESHOLD = 0.30
-FLAG_THRESHOLD         = 0.60   # above this → hold for manual review
-
-# Max sensible hours lost in a disruption day
-MAX_PLAUSIBLE_HOURS = 10
-
-# Plan daily coverage caps (must match PLAN_CONFIG in premium_service)
-PLAN_DAILY_CAPS = {
-    "basic":    300,
-    "standard": 500,
-    "pro":      800,
-}
-
-
-def _count_prior_claims(user_id: int, disruption_type: str) -> int:
-    return sum(
-        1 for c in claims_db
-        if c["user_id"] == user_id and c["disruption_type"] == disruption_type
-    )
+def _load_fraud_model():
+    global _fraud_model
+    if _fraud_model is not None:
+        return _fraud_model
+    if not _FRAUD_MODEL_PATH.exists():
+        logger.warning("fraud_model.pkl not found at %s — using heuristic fallback.", _FRAUD_MODEL_PATH)
+        return None
+    try:
+        with open(_FRAUD_MODEL_PATH, "rb") as f:
+            _fraud_model = pickle.load(f)
+        logger.info("IsolationForest fraud model loaded from %s", _FRAUD_MODEL_PATH)
+        return _fraud_model
+    except Exception as e:
+        logger.error("Failed to load fraud model: %s", e)
+        return None
 
 
-def detect_fraud(
-    user_id: int,
-    policy_id: int,
-    disruption_type: str,
-    hours_lost: float,
-    claim_amount: float,
-    plan_tier: str = "standard",
+def detect_claim_anomaly(
+    reported_rain_mm: float,
+    hours_worked_before_claim: float,
+    location_match_score: float,
 ) -> dict:
     """
-    Returns a fraud score (0.0–1.0) and verdict.
+    Run IsolationForest anomaly detection on a claim.
 
-    Score bands:
-        0.0 – 0.30  → approved   (auto payout)
-        0.30 – 0.60 → flagged    (approve + log for review)
-        0.60 – 1.0  → rejected   (hold, manual review)
+    Features:
+        reported_rain_mm          — rainfall at time of claim
+        hours_worked_before_claim — hours lost claimed by worker
+        location_match_score      — GPS vs cell tower match (0=mismatch, 1=match)
+
+    Returns:
+        is_anomaly    bool
+        anomaly_label "FLAGGED" | "NORMAL"
+        anomaly_score float (lower = more anomalous)
     """
-    score = 0.0
-    signals = []
+    model = _load_fraud_model()
 
-    # 1. Hours lost exceeds plausible maximum
-    if hours_lost > MAX_PLAUSIBLE_HOURS:
-        score += 0.35
-        signals.append(f"hours_lost ({hours_lost}h) exceeds plausible maximum ({MAX_PLAUSIBLE_HOURS}h)")
+    claim_vector = np.array([[
+        max(0.0, reported_rain_mm),
+        max(0.0, hours_worked_before_claim),
+        max(0.0, min(1.0, location_match_score)),
+    ]])
 
-    # 2. Claim amount exceeds plan's daily coverage cap
-    daily_cap = PLAN_DAILY_CAPS.get(plan_tier, 500)
-    if claim_amount > daily_cap:
-        score += 0.40
-        signals.append(f"claim_amount (₹{claim_amount}) exceeds {plan_tier} plan cap (₹{daily_cap})")
+    if model is None:
+        # Heuristic fallback when model file is unavailable
+        is_anomaly = (
+            reported_rain_mm < 2.0 and location_match_score < 0.4
+        ) or hours_worked_before_claim > 11
+        return {
+            "is_anomaly":    is_anomaly,
+            "anomaly_label": "FLAGGED" if is_anomaly else "NORMAL",
+            "anomaly_score": -0.5 if is_anomaly else 0.1,
+        }
 
-    # 3. Claim amount suspiciously close to cap (>90%) without large hours lost
-    elif claim_amount > daily_cap * 0.90 and hours_lost < 4:
-        score += 0.20
-        signals.append("high claim amount relative to hours lost")
-
-    # 4. Repeated claims for same disruption type (possible pattern fraud)
-    prior = _count_prior_claims(user_id, disruption_type)
-    if prior >= 3:
-        score += 0.25
-        signals.append(f"repeated claims for {disruption_type} ({prior} prior)")
-    elif prior >= 1:
-        score += 0.10
-
-    # 5. ML-based anomaly detection (IsolationForest)
-    #    Uses mock feature values for hours_worked and location_match
-    ml_result = detect_claim_anomaly(
-        reported_rain_mm=0.0,  # placeholder — real impl would use weather API
-        hours_worked_before_claim=hours_lost,
-        location_match_score=0.80 if score < 0.30 else 0.30,
-    )
-    if ml_result["is_anomaly"]:
-        score += 0.30
-        signals.append("ML anomaly detection flagged this claim")
-
-    # Cap at 1.0
-    score = min(round(score, 2), 1.0)
-
-    # Verdict
-    if score < AUTO_APPROVE_THRESHOLD:
-        status = "approved"
-        reason = None
-    elif score < FLAG_THRESHOLD:
-        status = "flagged"
-        reason = "Claim flagged for review: " + "; ".join(signals)
-    else:
-        status = "rejected"
-        reason = "Fraud detected: " + "; ".join(signals)
+    prediction    = model.predict(claim_vector)[0]   # 1=normal, -1=anomaly
+    anomaly_score = float(model.score_samples(claim_vector)[0])
 
     return {
-        "fraud_score": score,
-        "status":      status,
-        "reason":      reason,
-        "signals":     signals,
+        "is_anomaly":    prediction == -1,
+        "anomaly_label": "FLAGGED" if prediction == -1 else "NORMAL",
+        "anomaly_score": round(anomaly_score, 4),
     }
+
+
+# ── GPS / Location anti-spoofing helpers ─────────────────────────────────────
+
+def score_location_trust(
+    is_mock_location: bool,
+    device_speed_kph: float | None,
+    reported_rain_mm: float | None,
+    live_rain_mm: float | None,
+) -> tuple[float, list[str]]:
+    """
+    Compute a location trust score (0.0 = no trust, 1.0 = full trust).
+    Returns (score, list_of_signals).
+
+    Called by ClaimService as an additional anti-spoofing layer.
+
+    Signals checked:
+    1. is_mock_location flag from device integrity API
+    2. Implausible travel speed (>130 km/h on a delivery bike)
+    3. Rain mismatch — worker reports rain but live API shows dry (≥15mm delta)
+    """
+    score   = 1.0
+    signals = []
+
+    # 1. Device integrity — mock location detected by OS
+    if is_mock_location:
+        score -= 0.50
+        signals.append("device integrity flag: mock GPS detected")
+
+    # 2. Speed check — delivery bikes rarely exceed 80 km/h legally
+    if device_speed_kph is not None:
+        if device_speed_kph > 130:
+            score -= 0.25
+            signals.append(f"implausible speed: {device_speed_kph:.0f} km/h")
+        elif device_speed_kph > 100:
+            score -= 0.10
+            signals.append(f"elevated speed: {device_speed_kph:.0f} km/h")
+
+    # 3. Weather mismatch
+    if reported_rain_mm is not None and live_rain_mm is not None:
+        delta = abs(reported_rain_mm - live_rain_mm)
+        if delta >= 15.0:
+            score -= 0.30
+            signals.append(
+                f"weather mismatch: reported {reported_rain_mm:.1f}mm, "
+                f"live API shows {live_rain_mm:.1f}mm (Δ{delta:.1f}mm)"
+            )
+
+    return max(0.0, round(score, 2)), signals

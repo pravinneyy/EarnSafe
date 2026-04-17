@@ -5,6 +5,7 @@ from app.models import User
 from app.schemas import ClaimCreate, ClaimResponse
 from app.services.claim_service import ClaimService
 from app.services.exceptions import AuthorizationError, NotFoundError, ValidationError
+from app.services.trigger_engine import TriggerEngine
 from app.services.trigger_service import TriggerService
 
 router = APIRouter(prefix="/claims", tags=["Claims"])
@@ -20,13 +21,21 @@ async def get_my_claims(session: DbSession, current_user: User = Depends(get_cur
     return await ClaimService(session).get_user_claims(current_user.id)
 
 
-@router.post("/sync-auto", summary="Sync automatic claims for current user")
-async def sync_auto_claims(
-    session: DbSession,
-    current_user: User = Depends(get_current_user),
-    redis=Depends(get_redis_client),
-):
-    return await TriggerService(session, redis).sync_live_claim_for_user(current_user.id)
+@router.post(
+    "/auto-process",
+    status_code=200,
+    summary="Auto process claims",
+    description="Trigger automatic claim creation for active policies in disrupted zones. Normally called by a cron job.",
+)
+async def auto_process_claims(session: DbSession, redis=Depends(get_redis_client)):
+    trigger_svc = TriggerService(session, redis)
+    created_events = await trigger_svc.poll_weather_for_active_users()
+    summary = await TriggerEngine(session).run_claim_pipeline()
+    return {
+        "status": "success",
+        "events_detected": created_events,
+        "pipeline_summary": summary
+    }
 
 
 @router.post("/submit", response_model=ClaimResponse, status_code=201)

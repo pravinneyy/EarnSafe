@@ -74,49 +74,6 @@ async def get_live_premium(
     return {"status": "success", **(await PolicyService(session, redis).get_live_premium(lat=lat, lon=lon, zone=zone, tier=tier))}
 
 
-@router.get("/ai-premium/simulate", tags=["AI"])
-async def simulate_premium(
-    session: DbSession,
-    current_user: User = Depends(get_current_user),
-    zone: str = Query(...),
-    tier: str = Query("standard"),
-    rain_mm: float = Query(60.0),
-    temp_c: float = Query(28.0),
-    aqi_pm25: float = Query(30.0),
-    wind_kph: float = Query(12.0),
-):
-    _ = current_user
-    return {
-        "status": "success",
-        **(await PolicyService(session).simulate_premium(
-            zone=zone,
-            tier=tier,
-            rain_mm=rain_mm,
-            temp_c=temp_c,
-            aqi_pm25=aqi_pm25,
-            wind_kph=wind_kph,
-        )),
-    }
-
-
-@router.get("/ai-premium/demo", tags=["AI"])
-async def demo_scenario(
-    session: DbSession,
-    current_user: User = Depends(get_current_user),
-    scenario: str = Query("monsoon_flood"),
-    tier: str = Query("standard"),
-):
-    _ = current_user
-    try:
-        return {"status": "success", **(await PolicyService(session).demo_scenario(scenario=scenario, tier=tier))}
-    except ValidationError as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-
-
-@router.get("/ai-premium/demo/scenarios", tags=["AI"])
-async def list_scenarios(session: DbSession, current_user: User = Depends(get_current_user)):
-    _ = current_user
-    return await PolicyService(session).list_demo_scenarios()
 
 
 @router.get("/triggers", tags=["AI"])
