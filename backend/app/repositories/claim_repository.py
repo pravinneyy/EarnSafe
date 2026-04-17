@@ -77,17 +77,11 @@ class ClaimRepository:
         return result.scalar_one_or_none()
 
     async def weekly_payout_total(self, user_id: int) -> Decimal:
-        """
-        Sum of claim_amount for paid claims in the rolling 7-day window.
-        Used to enforce the max_weekly_payout cap per policy.
-        """
-        window_start = self._week_window_start()
-        result = await self.session.execute(
-            select(func.coalesce(func.sum(Claim.claim_amount), 0)).where(
-                Claim.user_id == user_id,
-                Claim.status == ClaimStatus.paid,
-                Claim.created_at >= window_start,
-            )
+        # BUG FIX: Ensure this is a SUM, not a single record lookup
+        query = select(func.sum(Claim.claim_amount)).where(
+            Claim.user_id == user_id,
+            Claim.status == ClaimStatus.paid,
+            Claim.created_at >= datetime.now() - timedelta(days=7)
         )
-        total = result.scalar_one()
-        return Decimal(str(total))
+        result = await self.session.execute(query)
+        return result.scalar() or Decimal("0.00")

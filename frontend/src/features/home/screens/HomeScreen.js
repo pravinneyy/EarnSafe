@@ -273,16 +273,14 @@ export default function HomeScreen({ route }) {
   const locationKey = getLocationKey(location);
 
   // ── Load weather + AQI + Forecast ──────────────
-// --- Updated useEffect in HomeScreen.js ---
-// --- Updated useEffect in HomeScreen.js ---
-// --- Inside HomeScreen.js ---
+// Inside HomeScreen.js, replace your useEffect with this:
 
 useEffect(() => {
   if (!locationKey || !location) return;
   
   const refreshData = async () => {
-    // Adding a random query parameter like ?cache=... forces the app to get new data every time
-    const data = await getWeatherBundle(location.latitude, location.longitude, `?cache=${Date.now()}`);
+    // Only fetch if necessary - 30 seconds is standard for weather/risk
+    const data = await getWeatherBundle(location.latitude, location.longitude);
     if (data) {
       setWeather(data);
       setAirQuality(data);
@@ -290,11 +288,14 @@ useEffect(() => {
     }
   };
 
-  refreshData(); // First load
-  const timer = setInterval(refreshData, 3000); // REFRESH EVERY 3 SECONDS
+  refreshData(); 
+
+  // CHANGED: Increased from 3s to 60s to prevent lag. 
+  // Weather/Traffic doesn't change every 3 seconds.
+  const timer = setInterval(refreshData, 60000); 
   
   return () => clearInterval(timer);
-}, [locationKey]);
+}, [locationKey]); // locationKey only changes when user moves > precision
 
   // Expand Animation helper
   const toggleExpand = () => {

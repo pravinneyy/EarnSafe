@@ -28,6 +28,7 @@ from app.repositories.claim_repository import ClaimRepository
 from app.repositories.policy_repository import PolicyRepository
 from app.repositories.trigger_event_repository import TriggerEventRepository
 from app.services.wallet_service import WalletService
+from app.services.traffic_service import get_traffic_status
 
 logger = logging.getLogger(__name__)
 
@@ -181,18 +182,45 @@ class TriggerEngine:
                 },
             )
             return "cap_exhausted"
+        
 
-        # ── 5. Compute claim amount — defensive zero guard ───────────────────
-        daily_coverage = Decimal(str(policy.daily_coverage))
-        claim_amount = min(daily_coverage, remaining_cap)
+        # ── 5. Compute claim amount — Traffic & Zero guard ───────────────────
+        
+        # Default coverage from policy
+        base_coverage = Decimal(str(policy.daily_coverage))
+        
+        # TRAFFIC INTEGRATION:
+        if event.event_type == "traffic":
+            # Extract coords from the event payload
+            lat = event.payload.get("lat")
+            lon = event.payload.get("lon")
+            
+            if lat and lon:
+                traffic = get_traffic_status(lat, lon)
+                
+                if not traffic.get("is_gridlock"):
+                    logger.info("TriggerEngine: skipping - Traffic not high enough for payout")
+                    return "cap_exhausted"
+                
+                # Adjust payout based on how bad the traffic is (e.g., 80% congestion = 80% of daily cap)
+                congestion_multiplier = Decimal(str(traffic.get("congestion_level", 0) / 100))
+                effective_coverage = base_coverage * congestion_multiplier
+            else:
+                effective_coverage = base_coverage
+        else:
+            effective_coverage = base_coverage
 
+        # Compute final claim amount — capped at weekly remaining budget
+        claim_amount = min(effective_coverage, remaining_cap)
+
+        # Defensive zero guard
         if claim_amount <= Decimal("0"):
             logger.info(
                 "TriggerEngine: skipping event — computed claim amount is zero",
                 extra={
                     "event_id": event.id,
                     "user_id": user_id,
-                    "daily_coverage": str(daily_coverage),
+                    "effective_coverage": str(effective_coverage),
                     "remaining_cap": str(remaining_cap),
                 },
             )

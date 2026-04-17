@@ -9,7 +9,7 @@ from app.repositories.user_repository import UserRepository
 from app.schemas import ClaimCreate
 from app.services.exceptions import AuthorizationError, NotFoundError, ValidationError
 
-PLAN_DAILY_CAPS = {"basic": 300.0, "standard": 500.0, "pro": 800.0}
+PLAN_DAILY_CAPS = {"basic": 150.0, "standard": 350.0, "pro": 500.0}
 
 
 class ClaimService:
