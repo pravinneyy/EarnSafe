@@ -71,23 +71,34 @@
             else alert("Invalid Phone");
         }
 
-        async function sendSim(active) {
-            const endpoint = active ? '/admin/start-simulation' : '/admin/stop-simulation';
-            const payload = active ? {
-                temp: document.getElementById('temp').value,
-                rain: document.getElementById('rain').value,
-                aqi: document.getElementById('aqi').value,
-                traffic: document.getElementById('traffic').value
-            } : {};
+       // --- Update only the sendSim function in index.html ---
 
-            const res = await fetch(API_URL + endpoint, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
-            
-            if(res.ok) alert(active ? "SIMULATION LIVE! Check the Mobile App." : "Simulation Stopped.");
+async function sendSim(active) {
+    const endpoint = active ? '/admin/start-simulation' : '/admin/stop-simulation';
+    
+    // Collect all slider values
+    const payload = {
+        temp: document.getElementById('temp').value,
+        rain: document.getElementById('rain').value,
+        aqi: document.getElementById('aqi').value,
+        traffic: document.getElementById('traffic').value
+    };
+
+    try {
+        const res = await fetch(API_URL + endpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        const data = await res.json();
+        if(res.ok) {
+            alert(active ? "🚀 SIMULATION LIVE! All users will now see disrupted data." : "🛑 Simulation Stopped. Returning to Real APIs.");
         }
+    } catch (err) {
+        alert("Error connecting to backend: " + err);
+    }
+}
     </script>
 </body>
 </html>
