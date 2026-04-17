@@ -399,30 +399,27 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
 
 # --- backend/app/integrations/ai_client.py ---
 
+# --- backend/app/integrations/ai_client.py ---
+
 async def get_live_risk_data(
-    *,
-    lat: float,
-    lon: float,
-    zone: str = "Chennai",
-    tier: str = "standard",
-    redis: Redis | None = None,
-    **kwargs
+    *, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None, **kwargs
 ) -> dict[str, Any]:
     settings = get_settings()
     zone_profile = _zone_profile(zone)
+    
+    # Initialize variables with default safe values
+    weather_payload, aqi_payload = {}, {}
+    temp_c, rain_mm, pm25, wmo, humidity, wind, traffic_score = 28.0, 0.0, 20.0, 0, 60, 10.0, 0.35
+    source = "fallback"
 
-    # --- PART A: GATHER RAW DATA (Simulated or Real) ---
+    # --- STEP 1: GATHER RAW DATA ---
     if SYSTEM_SIMULATION["active"]:
         temp_c = float(SYSTEM_SIMULATION["temp"])
         rain_mm = float(SYSTEM_SIMULATION["rain"])
-        # Map AQI slider to PM2.5 (app expects us_aqi or pm25)
-        pm25 = float(SYSTEM_SIMULATION["aqi"]) * 25.0 
+        pm25 = float(SYSTEM_SIMULATION["aqi"]) * 25.0
         traffic_score = float(SYSTEM_SIMULATION["traffic"]) / 100.0
         wmo = 65 if rain_mm > 15 else (61 if rain_mm > 0 else 1)
-        humidity, wind = 60, 12.0
-        source = "SIMULATION_BYPASS"
-        # Dummy payloads for forecast builder
-        weather_payload, aqi_payload = {}, {}
+        source = "SIMULATION_ACTIVE"
     else:
         try:
             timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -435,37 +432,26 @@ async def get_live_risk_data(
                         params={"latitude": lat, "longitude": lon, "current": ["pm2_5"], "hourly": ["pm2_5", "pm10", "european_aqi"], "timezone": "Asia/Kolkata"},
                         redis=redis, cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}))
                 )
-                curr_w = weather_payload.get("current", {})
-                curr_a = aqi_payload.get("current", {})
-                
-                temp_c = curr_w.get("temperature_2m", 28.0)
-                rain_mm = curr_w.get("rain", 0.0)
-                pm25 = curr_a.get("pm2_5", 20.0)
-                wmo = curr_w.get("weather_code", 0)
-                humidity = curr_w.get("relative_humidity_2m", 60)
-                wind = curr_w.get("wind_speed_10m", 10.0)
-                traffic_score = 0.35
+                curr_w, curr_a = weather_payload.get("current", {}), aqi_payload.get("current", {})
+                temp_c, rain_mm, pm25 = curr_w.get("temperature_2m", 28.0), curr_w.get("rain", 0.0), curr_a.get("pm2_5", 20.0)
+                wmo, humidity, wind = curr_w.get("weather_code", 0), curr_w.get("relative_humidity_2m", 60), curr_w.get("wind_speed_10m", 10.0)
                 source = "open-meteo"
-        except Exception as error:
-            logger.error(f"Upstream API Failure: {error}")
-            return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
+        except Exception as e:
+            # If APIs fail and simulation is off, return the fallback helper
+            return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(e))
 
-    # --- PART B: CALCULATE DISRUPTION & ML SCORE ---
-    triggers = evaluate_triggers(
-        rain_mm=rain_mm, temp_c=temp_c, wind_kph=wind,
-        pm25=pm25, flood_risk=zone_profile["flood"]
-    )
-    
+    # --- STEP 2: CALCULATE UNIFIED ANALYSIS ---
+    triggers = evaluate_triggers(rain_mm=rain_mm, temp_c=temp_c, wind_kph=wind, pm25=pm25, flood_risk=zone_profile["flood"])
     ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
-
-    # --- PART C: CONSTRUCT FULL RESPONSE (Required by Mobile App) ---
+    
+    # --- STEP 3: RETURN UNIFIED STRUCTURE (The Fix) ---
     return {
         "temperature": temp_c,
         "weather_condition": _weather_label_from_wmo(wmo),
         "humidity": humidity,
         "wind_speed": wind,
         "pm25": pm25,
-        "us_aqi": int(pm25), # MOBILE APP USES THIS KEY
+        "us_aqi": int(pm25), # Critical for UI
         "aqi_eu": int(pm25/20) + 1,
         "forecast": _build_hourly_forecast(weather_payload, aqi_payload) if weather_payload else [],
         "parametric_analysis": {

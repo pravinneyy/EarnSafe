@@ -279,32 +279,35 @@ export default function HomeScreen({ route }) {
 
 useEffect(() => {
   if (!locationKey || !location) return;
+  let isActive = true;
 
-  async function fetchData() {
-    // ... your existing fetching logic ...
-  }
-
-  // 1. Initial Fetch
-  fetchData();
-
-  // 2. WEBSOCKET FOR INSTANT UPDATES
-  const wsUrl = `wss://earnsafe-backend.onrender.com/ws/simulation`;
-  const ws = new WebSocket(wsUrl);
-
-  ws.onmessage = (e) => {
-    const message = JSON.parse(e.data);
-    if (message.type === "REFRESH_DATA") {
-      console.log("⚡ INSTANT UPDATE TRIGGERED");
-      fetchData(); // Run instantly!
-    }
+  const fetchData = async () => {
+    try {
+      const bundle = await getWeatherBundle(location.latitude, location.longitude);
+      if (isActive && bundle) {
+        setWeather(bundle);
+        setAirQuality(bundle);
+        setForecast(bundle.forecast || []);
+      }
+    } catch (e) { console.log("Fetch Error", e); }
   };
 
-  // 3. Keep polling as a backup (every 10s)
-  const backupPoll = setInterval(fetchData, 10000);
+  fetchData(); // Initial load
+
+  // Setup WebSocket safely
+  let ws;
+  try {
+    ws = new WebSocket('wss://earnsafe-backend.onrender.com/ws/simulation');
+    ws.onmessage = () => fetchData(); // Instant refresh on broadcast
+    ws.onerror = () => console.log("WS Offline - Falling back to polling");
+  } catch (e) { console.log("WS Init Error", e); }
+
+  const interval = setInterval(fetchData, 5000); // 5s backup polling
 
   return () => {
-    ws.close();
-    clearInterval(backupPoll);
+    isActive = false;
+    clearInterval(interval);
+    if (ws) ws.close();
   };
 }, [locationKey]);
 
