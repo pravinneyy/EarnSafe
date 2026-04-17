@@ -338,6 +338,7 @@ useEffect(() => {
   const overlayBg = isDark ? 'rgba(8,14,26,0.95)' : 'rgba(255,255,255,0.98)';
   const overlayText = isDark ? '#FFFFFF' : '#0F172A';
   const overlayMuted = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(15,23,42,0.5)';
+  const overlayDivider = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.12)';
 
   return (
     <View style={styles.root}>
@@ -400,20 +401,20 @@ useEffect(() => {
 <View style={styles.stripLeft}>
 <Text style={{fontSize: 24}}>📍</Text>
 <View style={{flex: 1, marginLeft: 6}}>
-<Text numberOfLines={1} ellipsizeMode="tail" style={styles.zoneText}>{user?.delivery_zone || 'Locating…'}</Text>
-<Text style={styles.expandHint}>Tap for forecast</Text>
+<Text numberOfLines={1} ellipsizeMode="tail" style={[styles.zoneText, { color: overlayText }]}>{user?.delivery_zone || 'Locating…'}</Text>
+<Text style={[styles.expandHint, { color: overlayMuted }]}>Tap for forecast</Text>
 </View>
 </View>
 <View style={styles.stripRight}>
 <Text style={[styles.statVal, {color: '#F59E0B'}]}>{weather ? `${Math.round(weather.temperature)}°` : '--'}</Text>
-<View style={styles.weatherDivider} />
+<View style={[styles.weatherDivider, { backgroundColor: overlayDivider }]} />
 <Text style={[styles.statVal, {color: aqiColor}]}>AQI {aqiDisplay}</Text>
-<View style={styles.weatherDivider} />
+<View style={[styles.weatherDivider, { backgroundColor: overlayDivider }]} />
 <View style={{flexDirection: 'row', alignItems: 'center'}}>
 <Text style={{fontSize: 16}}>{!!(weather?.parametric_analysis?.traffic_congestion > 70) ? '🔴' : '🟢'}</Text>
 <Text style={[styles.statVal, {color: (weather?.parametric_analysis?.traffic_congestion > 70) ? '#EF4444' : '#10B981', marginLeft: 2}]}>{weather?.parametric_analysis?.traffic_congestion ? `${Math.round(weather.parametric_analysis.traffic_congestion)}%` : '0%'}</Text>
 </View>
-<View style={styles.weatherDivider} />
+<View style={[styles.weatherDivider, { backgroundColor: overlayDivider }]} />
 <Text style={{fontSize: 20}}>{weatherEmoji}</Text>
 </View>
 </Pressable>
@@ -530,12 +531,10 @@ const styles = StyleSheet.create({
   zoneText: { 
     fontSize: 20,        // LARGE CITY NAME
     fontWeight: '800',
-    color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   expandHint: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   statVal: { 
@@ -545,7 +544,6 @@ const styles = StyleSheet.create({
   weatherDivider: { 
     width: 1, 
     height: 18, 
-    backgroundColor: 'rgba(255,255,255,0.2)',
     marginHorizontal: 1,
   },
 

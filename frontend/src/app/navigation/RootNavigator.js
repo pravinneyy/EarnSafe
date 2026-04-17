@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import RegisterScreen from '../../features/auth/screens/RegisterScreen';
 import ExistingUserScreen from '../../features/auth/screens/ExistingUserScreen';
@@ -46,6 +47,9 @@ function TabIcon({ route, focused }) {
 function MainTabs({ route }) {
   const params = route.params || {};
   const { isDark, colors: c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, spacing.sm);
+  const tabBarHeight = 58 + bottomInset;
 
   return (
     <Tab.Navigator
@@ -68,9 +72,9 @@ function MainTabs({ route }) {
           backgroundColor: isDark ? c.navy900 : '#FFFFFF',
           borderTopWidth: isDark ? 0 : 1,
           borderTopColor: c.border,
-          height: 62,
+          height: tabBarHeight,
           paddingTop: spacing.xs,
-          paddingBottom: spacing.sm,
+          paddingBottom: bottomInset,
           ...shadows.elevated,
         },
         tabBarItemStyle: tabStyles.tabItem,
