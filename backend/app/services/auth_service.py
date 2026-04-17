@@ -126,21 +126,39 @@ async def verify_firebase_id_token(id_token: str) -> dict:
 
 def _risk_score(city: str, platform: str, zone: str = "") -> float:
     """
-    Compute a 0.0–1.0 risk score using the ML model with seasonal defaults.
-    Falls back to a simple zone-based heuristic if the model is unavailable.
+    Compute a 0.0–1.0 risk score using the ML model.
+    When a global simulation is active, uses simulated weather values
+    so the displayed risk score matches what get_live_risk_data returns.
+    Falls back to a simple heuristic if the model is unavailable.
     """
     try:
-        from app.integrations.ai_client import predict_risk
-        result = predict_risk(
-            zone=zone or city.strip().title(),
-            delivery_persona="Food",
-            tier="standard",
-        )
+        from app.integrations.ai_client import SYSTEM_SIMULATION, predict_risk
+
+        # If admin simulation is running, use those weather values
+        if SYSTEM_SIMULATION.get("active"):
+            sim_rain = float(SYSTEM_SIMULATION.get("rain", 0))
+            sim_temp = float(SYSTEM_SIMULATION.get("temp", 28))
+            sim_aqi_slider = int(SYSTEM_SIMULATION.get("aqi", 1))
+            sim_pm25 = float(sim_aqi_slider * 25.0)
+            result = predict_risk(
+                zone=zone or city.strip().title(),
+                delivery_persona="Food",
+                tier="standard",
+                rain=sim_rain,
+                temp=sim_temp,
+                aqi=sim_pm25,
+            )
+        else:
+            result = predict_risk(
+                zone=zone or city.strip().title(),
+                delivery_persona="Food",
+                tier="standard",
+            )
         return float(result["ai_risk_score"])
     except Exception:
-        # Simple fallback: high-risk city = 0.65, others = 0.45
         high_risk = {"chennai", "mumbai", "kolkata"}
         return 0.65 if city.lower() in high_risk else 0.45
+
 
 
 # ── AuthService ───────────────────────────────────────────────────────────────
