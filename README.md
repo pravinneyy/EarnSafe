@@ -78,7 +78,7 @@ These two scenarios define the core value of the platform:
 
 | Plan     | Weekly premium | Daily income protection | Max weekly payout |
 | -------- | -------------- | ----------------------- | ----------------- |
-<<<<<<< Updated upstream
+ Updated upstream
 | Basic    | Rs. 29         | Rs. 150                 | Rs. 800          |
 | Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
 | Pro      | Rs. 89         | Rs. 500                 | Rs. 3000          |
@@ -86,7 +86,7 @@ These two scenarios define the core value of the platform:
 | Basic    | Rs. 29         | Rs. 150                 | Rs. 800           |
 | Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
 | Pro      | Rs. 89         | Rs. 500                 | Rs. 2500          |
->>>>>>> Stashed changes
+ Stashed changes
 
 These values are not stipulated and might change as we work on our prototype
 
