@@ -124,14 +124,23 @@ async def verify_firebase_id_token(id_token: str) -> dict:
 
 # ── Risk scoring ──────────────────────────────────────────────────────────────
 
-def _risk_score(city: str, platform: str) -> float:
-    high_risk = {"chennai", "mumbai", "kolkata"}
-    score = 60.0
-    if city.lower() in high_risk:
-        score += 15
-    if platform.lower() in {"blinkit", "zepto"}:
-        score += 10
-    return min(score, 100.0)
+def _risk_score(city: str, platform: str, zone: str = "") -> float:
+    """
+    Compute a 0.0–1.0 risk score using the ML model with seasonal defaults.
+    Falls back to a simple zone-based heuristic if the model is unavailable.
+    """
+    try:
+        from app.integrations.ai_client import predict_risk
+        result = predict_risk(
+            zone=zone or city.strip().title(),
+            delivery_persona="Food",
+            tier="standard",
+        )
+        return float(result["ai_risk_score"])
+    except Exception:
+        # Simple fallback: high-risk city = 0.65, others = 0.45
+        high_risk = {"chennai", "mumbai", "kolkata"}
+        return 0.65 if city.lower() in high_risk else 0.45
 
 
 # ── AuthService ───────────────────────────────────────────────────────────────
@@ -158,7 +167,7 @@ class AuthService:
             delivery_zone=payload.delivery_zone,
             platform=payload.platform.value,
             weekly_income=payload.weekly_income,
-            risk_score=_risk_score(payload.city, payload.platform.value),
+            risk_score=_risk_score(payload.city, payload.platform.value, getattr(payload, 'delivery_zone', '')),
         )
         try:
             await self.user_repo.create(user)
@@ -263,6 +272,16 @@ class AuthService:
 
         active_policy = await self.policy_repo.get_active_for_user(user_id)
         wallet = await self.wallet_service.get_or_create_wallet(user_id)
+
+        # Refresh risk_score from ML model on every /me call so it
+        # reflects live seasonal + zone factors, not a static registration value.
+        try:
+            fresh_score = _risk_score(user.city, user.platform, user.delivery_zone or "")
+            if abs(fresh_score - user.risk_score) > 0.01:
+                user.risk_score = fresh_score
+                await self.session.commit()
+        except Exception:
+            pass  # keep existing score if ML call fails
 
         return {
             "id": user.id,

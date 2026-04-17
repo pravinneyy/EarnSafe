@@ -15,7 +15,9 @@ export function formatPercentFromRatio(value) {
 }
 
 export function formatPercentFromScore(value) {
-  return `${Math.round(Number(value))}/100`;
+  // risk_score is now a 0.0–1.0 ratio from the ML model
+  const pct = Number(value) <= 1.0 ? Math.round(Number(value) * 100) : Math.round(Number(value));
+  return `${pct}/100`;
 }
 
 export function toTitleCase(value) {

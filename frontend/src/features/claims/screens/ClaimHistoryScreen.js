@@ -118,9 +118,13 @@ export default function ClaimHistoryScreen({ route }) {
   );
 
   // ── Derived stats ──────────────────────────────────────────────────
-  const paidClaims = claims.filter(c => c.status === 'paid' || c.status === 'approved');
-  const totalPaid = paidClaims.reduce((s, c) => s + Number(c.claim_amount), 0);
+  // Truly paid-out claims only — 'approved' is an intermediate state
+  // that has NOT yet been credited to the wallet.
+  const paidClaims   = claims.filter(c => c.status === 'paid');
+  const pendingClaims = claims.filter(c => c.status === 'approved' || c.status === 'triggered');
+  const totalPaid    = paidClaims.reduce((s, c) => s + Number(c.claim_amount), 0);
   const approvalRatio = claims.length === 0 ? 0 : paidClaims.length / claims.length;
+
 
   if (loading) {
     return (
@@ -184,9 +188,14 @@ export default function ClaimHistoryScreen({ route }) {
         <StatCard label="Total claims" value={`${claims.length}`} />
       </View>
       <View style={styles.statsRow}>
-        <StatCard label="Paid" value={`${paidClaims.length}`} />
-        <StatCard label="Success rate" value={formatPercentFromRatio(approvalRatio)} />
+        <StatCard label="Paid out" value={`${paidClaims.length}`} />
+        <StatCard label="Pending" value={`${pendingClaims.length}`} />
       </View>
+      <View style={styles.statsRow}>
+        <StatCard label="Success rate" value={formatPercentFromRatio(approvalRatio)} />
+        <StatCard label="Max/week" value="2 claims" />
+      </View>
+
 
       {/* ── Claims List ────────────────────────────────────────────── */}
       <SectionHeading
