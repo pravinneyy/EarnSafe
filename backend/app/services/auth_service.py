@@ -170,6 +170,22 @@ class AuthService:
         self.policy_repo = PolicyRepository(session)
         self.wallet_service = WalletService(session)
 
+    async def _ensure_user_risk_score(self, user: User) -> bool:
+        """
+        Backfill legacy users whose risk_score was left at 0.
+        """
+        current_score = float(user.risk_score or 0)
+        if current_score > 0:
+            return False
+
+        user.risk_score = _risk_score(user.city, user.platform)
+        await self.session.flush()
+        logger.info(
+            "AuthService: backfilled missing user risk score",
+            extra={"user_id": user.id, "risk_score": user.risk_score},
+        )
+        return True
+
     async def register(self, payload: UserCreate) -> dict:
         if await self.user_repo.get_by_username(payload.username):
             raise ConflictError("Username already registered")
@@ -205,8 +221,15 @@ class AuthService:
         if not user or not verify_password(payload.password, user.password_hash):
             raise AuthenticationError("Invalid username or password")
 
+        risk_score_backfilled = await self._ensure_user_risk_score(user)
         active_policy = await self.policy_repo.get_active_for_user(user.id)
         wallet = await self.wallet_service.get_or_create_wallet(user.id)
+        if risk_score_backfilled:
+            try:
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                raise
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
 
         logger.info("AuthService: user logged in (password)", extra={"user_id": user.id})
@@ -245,8 +268,15 @@ class AuthService:
                 "Please register first or use the phone number you signed up with."
             )
 
+        risk_score_backfilled = await self._ensure_user_risk_score(user)
         active_policy = await self.policy_repo.get_active_for_user(user.id)
         wallet = await self.wallet_service.get_or_create_wallet(user.id)
+        if risk_score_backfilled:
+            try:
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                raise
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
 
         logger.info("AuthService: Firebase phone login", extra={"user_id": user.id, "phone": phone})
@@ -275,8 +305,15 @@ class AuthService:
                 "Please register first or use the phone number you signed up with."
             )
 
+        risk_score_backfilled = await self._ensure_user_risk_score(user)
         active_policy = await self.policy_repo.get_active_for_user(user.id)
         wallet = await self.wallet_service.get_or_create_wallet(user.id)
+        if risk_score_backfilled:
+            try:
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                raise
         token = create_access_token(str(user.id), extra_claims={"username": user.username})
 
         logger.info("AuthService: mock phone login", extra={"user_id": user.id, "phone": clean})
@@ -288,8 +325,15 @@ class AuthService:
         if not user:
             raise NotFoundError("User not found")
 
+        risk_score_backfilled = await self._ensure_user_risk_score(user)
         active_policy = await self.policy_repo.get_active_for_user(user_id)
         wallet = await self.wallet_service.get_or_create_wallet(user_id)
+        if risk_score_backfilled:
+            try:
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                raise
 
         # Refresh risk_score from ML model on every /me call so it
         # reflects live seasonal + zone factors, not a static registration value.

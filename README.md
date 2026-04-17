@@ -38,8 +38,9 @@ The idea is simple:
 
 - the worker buys weekly protection
 - the system monitors approved disruption triggers
-- when a trigger affects the worker's zone and active policy window, the system starts a zero-touch claim
-- the backend validates the event, checks fraud signals, and triggers a simulated payout for lost income.The platform insures the worker's missed earning time.
+- when a trigger affects the worker's zone and active policy window, the system creates a zero-touch parametric claim
+- the backend validates the event, applies payout guardrails, and credits the worker wallet automatically
+- an admin simulation dashboard can trigger the same flow and push live refresh events back into the app
 
 ## Why Mobile First
 
@@ -64,22 +65,28 @@ These two scenarios define the core value of the platform:
 
 ## End-to-End Workflow
 
-1. A delivery worker registers in the mobile app with a username, password, city, delivery zone, platform, weekly income, and work profile.
-2. The backend creates a risk profile using worker details, zone-level disruption exposure, and AI scoring.
-3. The worker is shown weekly plan options and an appropriate premium.
-4. Once the policy is active, the backend monitors configured external triggers for the worker's zone.
-5. When a verified disruption occurs, the platform can auto-initiate or pre-fill a claim flow.
-6. The claim engine checks policy validity, trigger evidence, location consistency, and fraud signals.
-7. The platform returns `approved`, `flagged`, or `rejected`.
-8. Approved claims move to a simulated instant payout flow and appear in the worker dashboard.
+1. A delivery worker registers in the mobile app with a username, password, city, delivery zone, platform, and weekly income.
+2. The backend creates a persisted worker risk profile and serves it back through `/users/me`.
+3. The worker is shown weekly plan options and AI-adjusted premium quotes.
+4. Once a policy is active, the backend monitors live weather, AQI, and traffic conditions for the worker's zone. The admin dashboard can simulate the same event flow for demos.
+5. When a verified disruption occurs, the platform creates a trigger event and can sync the auto-claim into the wallet/claims screen.
+6. The trigger engine checks policy validity, duplicate-event cooldown, weekly claim limits, and remaining weekly payout budget.
+7. Auto claims advance through `triggered -> approved -> paid`, while manual claims can still be `approved`, `flagged`, or `rejected` by the fraud pipeline.
+8. Paid claims credit the wallet and appear in the mobile app claim history.
 
 ### Base weekly plans
 
 | Plan     | Weekly premium | Daily income protection | Max weekly payout |
 | -------- | -------------- | ----------------------- | ----------------- |
+<<<<<<< Updated upstream
 | Basic    | Rs. 29         | Rs. 150                 | Rs. 800          |
 | Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
 | Pro      | Rs. 89         | Rs. 500                 | Rs. 3000          |
+=======
+| Basic    | Rs. 29         | Rs. 150                 | Rs. 800           |
+| Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
+| Pro      | Rs. 89         | Rs. 500                 | Rs. 2500          |
+>>>>>>> Stashed changes
 
 These values are not stipulated and might change as we work on our prototype
 
@@ -105,11 +112,11 @@ Estimated weekly premium:
 
 ### Payout logic
 
-Payout is based on lost income hours, but always capped by policy rules.
+The current production path in this repo is the parametric auto-claim flow.
 
-`approved payout = min(hours lost x protected hourly amount, daily protection cap, weekly remaining limit)`
+`auto payout = min(policy daily coverage, weekly remaining limit)`
 
-This keeps the product aligned to lost wages instead of unrelated expenses.
+For traffic-triggered events, the payout can be reduced by congestion severity before the weekly cap is applied. Manual claims are still supported for fraud-review demos, but automatic weather-triggered claims are what drive the wallet balance in the app.
 
 ## Insurance Domain Grounding & Exclusions
 
@@ -299,75 +306,80 @@ You can never trust user input to be perfectly typed. We built a high-speed **Fa
 
 ## Integrated APIs & Evidence-Based Logic
 
-EarnSafe employs a **Dual-Source Data Strategy** to ensure every "Trigger Decision" is mathematically validated and fraud-resistant. We cross-reference multiple meteorological providers to maintain a "High-Reliability" claim pipeline.
+EarnSafe now uses a fallback-first data strategy: live external feeds are queried in real time, and the backend falls back to cached or synthetic snapshots when upstream services are unavailable so the app and demo flows keep running.
 
 ### 1. Data Source Inventory
 
 | Service | Architecture Layer | Specific Usage | Data Type |
 | :--- | :--- | :--- | :--- |
-| **Open-Meteo API** | `ai/ml/` | **Risk Prediction:** Feeds the CatBoost Risk Engine. | Hourly Forecasts |
-| **Open-Meteo AQI** | `ai/ml/` | **Health Triggers:** Monitors hazardous PM2.5/PM10 levels. | PM2.5, PM10, Dust |
-| **OpenWeather API**| `backend/` | **Primary Truth Source:** Final validation for payout. | Historical Actuals |
-| **TomTom API** | Backend/UI | **Geofencing:** Reverse geocoding of worker zones. | Geo-coordinates |
-| **Razorpay** | Payments | **Premium Lifecycle:** Sandbox order & verification. | Webhook/API |
-| **Supabase** | DB/Auth | **Audit Trail:** Source of truth for policies/claims. | Relational Data |
+| **Open-Meteo Forecast** | `backend/app/integrations/ai_client.py` | Live rain, temperature, wind, and forecast inputs for risk scoring and trigger evaluation. | Weather |
+| **Open-Meteo Air Quality** | `backend/app/integrations/ai_client.py` | PM2.5 / PM10 / AQI inputs for hazardous-air triggers and risk scoring. | AQI |
+| **TomTom Flow Segment API** | `backend/app/services/traffic_service.py` | Congestion lookup for traffic-sensitive payout logic. | Traffic |
+| **Razorpay** | Payments | Sandbox quote, order creation, and payment verification. | Webhook / API |
+| **PostgreSQL + SQLAlchemy** | Persistence | Source of truth for users, policies, trigger events, claims, payments, and wallets. | Relational Data |
+| **Redis** | Cache / worker support | AI snapshot caching and shared infra for the API + Celery worker. | Cache / queue |
+| **WebSocket (`/ws/simulation`)** | Realtime | Pushes admin-triggered refresh events into the mobile app. | App sync |
+| **`api-test-dashboard/index.html`** | Demo admin surface | Starts/stops simulation mode and triggers live claim generation for demos. | Admin testing |
 
 ### 2. Evidence-Backed Model Decisions
-Our thresholds are not arbitrary; they are mapped to **Official National Safety Standards** to ensure actuarial viability:
+Current trigger and pricing decisions in the repo are grounded in these live inputs:
 
-*   **Meteorological Evidence (Rain >20mm/hr):** Sourced via **OpenWeather**; mapped to the **IMD (India Meteorological Department)** "Heavy Rain" Impact-Based Forecast (IBF) for urban disruptions.
-*   **Thermal Evidence (Heat >42°C):** Sourced via **Open-Meteo**; mapped to the **NDMA (National Disaster Management Authority)** safety protocols for outdoor physical labor.
-*   **Environmental Evidence (PM2.5 > 75):** Sourced via **Open-Meteo AQI**; mapped to the **CPCB (Central Pollution Control Board)** "Poor" category health advisory.
+*   **Rainfall (Rain > 20mm):** pulled from **Open-Meteo** and mapped to the heavy-rain disruption threshold used in the trigger engine.
+*   **Thermal Stress (Temp > 42°C):** pulled from **Open-Meteo** and treated as an extreme-heat trigger.
+*   **Air Quality (PM2.5 > 75):** pulled from **Open-Meteo AQI** and treated as a hazardous-air trigger.
+*   **Traffic Severity:** pulled from **TomTom** and used to scale or suppress traffic-sensitive payouts.
 
-### 3. Redundancy & "Sensor Fusion" Logic
-To eliminate a "Single Point of Failure," the system performs a **Triple-Check** before approving any payout:
-1.  **Meteorological Check:** Did both OpenWeather and Open-Meteo report a threshold violation?
-2.  **Location Check:** Does the **TomTom API** verify the worker was physically within the affected geofence?
-3.  **Fraud Check:** Does the **Isolation Forest** model flag the claim data as an anomaly compared to local historical patterns?
-
-By linking these APIs to official government standards, we provide the **quantitative depth** required for institutional insurance grounding.
+### 3. Runtime Guardrails & Fallback Logic
+Before a payout reaches the wallet, the backend performs multiple checks:
+1.  **Live Snapshot Check:** weather/AQI/traffic inputs are fetched live, but a synthetic fallback snapshot is returned if upstream providers fail.
+2.  **Trigger Guardrails:** duplicate-event suppression, cooldown windows, weekly claim limits, and weekly payout caps run inside the trigger pipeline.
+3.  **Fraud Review for Manual Claims:** Isolation Forest and location-trust signals still gate the manual claim path.
 
 ## Tech Stack
 
 ### Current trail-phase stack
 
-- Frontend: React Native with Expo +   OpenStreetMap (OSM)  
-- Navigation: WebView + Leafet.js
-- Backend: FastAPI
+- Frontend: React Native + Expo
+- Navigation/UI: React Navigation, React Native WebView, and Leaflet/TomTom-backed map rendering
+- Backend: FastAPI + Uvicorn
 - Validation: Pydantic
-- Server: Uvicorn
-- Storage: Supabase for user accounts, in-memory mock data for prototype policies and claims
-- Monitoring: Openweather API (AQI + Weather) (Integrated)
+- Persistence: PostgreSQL via SQLAlchemy asyncio
+- Cache / workers: Redis + Celery
+- Weather / AQI: Open-Meteo forecast + Open-Meteo air-quality APIs
+- Traffic: TomTom Flow Segment API
 - Payments: Razorpay sandbox order creation + signature verification
-- ML: Python, CatBoost, pandas, scikit-learn tooling for evaluation
-- Trigger feeds: TomTom api , openweather api , aqi api , mock apis for civic alerts
+- Realtime sync: FastAPI WebSocket broadcast for admin simulation refreshes
+- ML: Python, CatBoost, pandas, numpy, scikit-learn
+- Demo tooling: `api-test-dashboard/` static admin dashboard
 
 ### Planned additions for later phases
 
-- Data store: PostgreSQL or Supabase
-- Dashboard: simple web admin and analytics panel
+- Production-grade admin auth and operations tooling
+- Richer civic / closure trigger feeds
+- Stronger client-side Firebase integration
 
 ## Development Plan
 
 ## Current Repository Status
 
-This repository is the trail-phase starting point for the full solution.
+This repository is now beyond the initial skeleton stage. It already contains a working end-to-end demo flow across mobile, backend, payments, claims, and admin simulation.
 
 What already exists:
 
-- a skeleton of frontend and backend
-- basic file structure
-- CatBoost-based AI risk scoring
-- parametric trigger monitoring
-- analytics dashboard
-- ML-assisted fraud detection
-- runnable apk file
+- React Native mobile app for register/login, home weather view, policy management, wallet/claims, and profile
+- JWT-authenticated FastAPI backend with `/users/me`, wallet, policy, payments, claims, weather, and admin routes
+- CatBoost-based premium / risk scoring plus Isolation Forest-backed manual-claim fraud checks
+- Automatic trigger-to-claim pipeline with wallet credits, claim cooldowns, weekly limits, and idempotent payout protection
+- Razorpay sandbox quote/order/verify flow
+- Admin simulation dashboard that can start/stop weather scenarios and push realtime refresh events to the app
+- Docker Compose setup for PostgreSQL, Redis, API, and Celery worker
+- Runnable Android artifacts in the repo for demo purposes
 
-What will be added to fully match the use case:
+What is still evolving:
 
-- strict persona-driven experience for food delivery workers
-- automated parametric trigger monitoring
-- payout simulation
+- richer trigger feeds beyond weather/AQI/traffic
+- stronger production-ready admin auth and audit tooling
+- more polished client-side Firebase phone auth
 
 ## Summary
 
@@ -386,9 +398,11 @@ For the payment setup used by the mobile app, see `docs/razorpay-sandbox-setup.m
 
 - Python 3.10+
 - Node.js 18+
+- PostgreSQL 16+ and Redis 7+ if you are not using Docker Compose
 - Android Studio emulator or a physical Android device
 - Xcode if you want to run the iOS build
 - A Razorpay account with Test Mode enabled
+- Docker Desktop is optional but recommended for local backend infra
 
 ### 1. Install Backend Dependencies
 
@@ -399,32 +413,40 @@ pip install -r requirements.txt
 
 This installs FastAPI, Uvicorn, CatBoost, scikit-learn, pandas, numpy, and all other required packages. The AI/ML models (CatBoost risk engine + IsolationForest fraud detector) load automatically on server startup.
 
+If you want local infrastructure quickly, start PostgreSQL and Redis from the repository root:
+
+```bash
+docker-compose up -d postgres redis
+```
+
 ### 2. Set Up Environment Variables
 
 Create a `.env` file in the backend folder of the project with:
 
 ```
-OPENWEATHER_API_KEY=<your_openweather_api_key>
-SUPABASE_URL=<your_supabase_project_url>
-SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
+DATABASE_URL=postgresql+asyncpg://earnsafe:earnsafe@localhost:5432/earnsafe
+REDIS_URL=redis://localhost:6379/0
+JWT_SECRET_KEY=<a-long-random-secret-at-least-32-characters>
 RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
 RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
-GOOGLE_ANDROID_CLIENT_ID=<your_google_android_client_id>
-TOMTOM_API_KEY=<your_tomtom_api_key>
+RAZORPAY_WEBHOOK_SECRET=<optional-for-webhook-testing>
+TOMTOM_API_KEY=<optional-for-traffic-risk-checks>
+FIREBASE_PROJECT_ID=<optional-for-server-side-firebase-token-verification>
+APP_DEBUG=true
 ```
 
 For the frontend, create `frontend/.env` :
 
 ```
-OPENWEATHER_API_KEY=<your_openweather_api_key>
-SUPABASE_URL=<your_supabase_project_url>
-SUPABASE_SERVICE_ROLE_KEY=<your_supabase_service_role_key>
-RAZORPAY_KEY_ID=<your_razorpay_test_key_id>
-RAZORPAY_KEY_SECRET=<your_razorpay_test_key_secret>
-EXPO_PUBLIC_API_BASE_URL=<your_backend_base_url>
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=<your_google_android_client_id>
-EXPO_PUBLIC_TOMTOM_API_KEY=<your_tomtom_api_key>
+EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8000
+EXPO_PUBLIC_TOMTOM_API_KEY=<optional-map-tile-key>
 ```
+
+Notes:
+
+- `EXPO_PUBLIC_API_BASE_URL` is optional. If you leave it unset, the app falls back to the hosted Render backend.
+- On Android emulators, `10.0.2.2` points back to your local machine.
+- Open-Meteo base URLs already have defaults in the backend config, so you usually do not need to set them manually.
 
 ### 3. Razorpay Sandbox Setup
 
@@ -504,8 +526,10 @@ This runs the AI models as an independent server on port 8001 for testing or dem
 ### 9. Test the AI Endpoint
 
 ```bash
-curl "http://localhost:8000/policy/ai-premium?zone=Velachery&persona=Food&tier=standard"
+curl -H "Authorization: Bearer <access_token>" "http://localhost:8000/policy/ai-premium?zone=Velachery&persona=Food&tier=standard"
 ```
+
+Get `<access_token>` from `/users/login`, `/users/register`, or `/auth/phone-login` first.
 
 Or run the test script:
 
@@ -517,6 +541,8 @@ python test.py
 ---
 
 ## API Endpoints
+
+Unless explicitly noted otherwise, app-facing routes below are JWT-protected and expect `Authorization: Bearer <token>`.
 
 ### Health
 
@@ -530,13 +556,27 @@ python test.py
 |--------|---------------------|------------------------------|
 | `POST` | `/users/register`   | Register a new delivery worker |
 | `POST` | `/users/login`      | Login with username and password |
+| `GET`  | `/users/me`         | Get the current authenticated session profile |
+| `GET`  | `/users/wallet`     | Get the current user's wallet balance |
 | `GET`  | `/users/{user_id}`  | Get user profile by ID       |
+
+### Auth
+
+| Method | Endpoint             | Description |
+|--------|----------------------|-------------|
+| `POST` | `/auth/login`        | Secondary username/password auth route |
+| `POST` | `/auth/phone-login`  | Mock OTP login used by the current mobile app |
+| `POST` | `/auth/firebase`     | Firebase token exchange for server-issued JWT |
 
 ### Policy
 
 | Method | Endpoint                                          | Description                                      |
 |--------|---------------------------------------------------|--------------------------------------------------|
+| `GET`  | `/policy/`                                        | Get the current active policy for the authenticated user |
+| `POST` | `/policy/change`                                  | Change the active plan tier (7-day cooldown) |
 | `GET`  | `/policy/ai-premium?zone=X&persona=Y&tier=Z`     | **AI-powered** real-time premium quote (CatBoost) |
+| `GET`  | `/policy/ai-premium/live?lat=X&lon=Y&zone=Z&tier=T` | Live premium + disruption snapshot from live feeds |
+| `GET`  | `/policy/triggers`                                | List configured trigger definitions |
 | `POST` | `/policy/create`                                  | Create and activate a policy                      |
 | `GET`  | `/policy/{policy_id}`                             | Get policy details                                |
 | `GET`  | `/policy/user/{user_id}`                          | Get all policies for a user                       |
@@ -548,11 +588,15 @@ python test.py
 | `POST` | `/payments/quote`  | Create a short-lived backend quote for a plan |
 | `POST` | `/payments/order`  | Create a Razorpay sandbox order from that quote |
 | `POST` | `/payments/verify` | Verify the Razorpay signature and activate the policy |
+| `POST` | `/payments/webhook` | Accept Razorpay webhook callbacks |
 
 ### Claims
 
 | Method | Endpoint               | Description                                         |
 |--------|------------------------|-----------------------------------------------------|
+| `GET`  | `/claims/`             | Get all claims for the authenticated user |
+| `POST` | `/claims/sync-auto`    | Sync parametric auto-claims for the authenticated user |
+| `POST` | `/claims/auto-process` | Run the full trigger-event to claim pipeline for active users |
 | `POST` | `/claims/submit`       | Submit a claim (uses **IsolationForest** fraud detection) |
 | `GET`  | `/claims/user/{user_id}` | Get all claims for a user                          |
 | `GET`  | `/claims/{claim_id}`   | Get claim details                                   |
@@ -562,6 +606,16 @@ python test.py
 | Method | Endpoint                  | Description                        |
 |--------|---------------------------|------------------------------------|
 | `GET`  | `/weather/?lat=X&lon=Y`  | Live weather + AQI + disruption analysis |
+| `GET`  | `/weather/forecast?lat=X&lon=Y` | Forecast-oriented weather bundle using the same safe fallback logic |
+
+### Admin / Demo
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/admin/login` | Minimal admin login used by the demo dashboard |
+| `POST` | `/admin/start-simulation` | Start simulation mode, return live risk snapshot, and run claim sync |
+| `POST` | `/admin/stop-simulation` | Stop simulation mode and broadcast an app refresh |
+| `WS`   | `/ws/simulation` | Realtime refresh channel consumed by the mobile claims screen |
 
 ### Example: AI Premium Response
 
@@ -582,11 +636,13 @@ python test.py
   "id": 1,
   "user_id": 1,
   "policy_id": 1,
+  "trigger_event_id": null,
   "disruption_type": "heavy_rainfall",
   "hours_lost": 6.0,
   "claim_amount": 400,
   "fraud_score": 0.0,
   "status": "approved",
+  "source": "manual",
   "reason": null
 }
 ```

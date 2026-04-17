@@ -12,8 +12,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
-import { createPaymentOrder, createPaymentQuote, verifyPayment } from '../../../services/api';
-import { getActivePolicy, changePolicy } from '../../../services/api';
+import { changePolicy, createPaymentOrder, createPaymentQuote, getActivePolicy, getMe, verifyPayment } from '../../../services/api';
 import { openRazorpayCheckout, isPaymentCancellation, getPaymentErrorMessage } from '../../../services/razorpayCheckout';
 import { getRiskMessage, PLANS } from '../constants';
 import PlanOptionCard from '../components/PlanOptionCard';
@@ -60,6 +59,14 @@ function getRiskLevel(score) {
   if (score >= 0.7) return { label: 'High risk', color: '#EF4444', tone: 'danger' };
   if (score >= 0.4) return { label: 'Moderate', color: '#F59E0B', tone: 'warning' };
   return { label: 'Low risk', color: '#10B981', tone: 'success' };
+}
+
+function getStoredRiskScore(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return numeric <= 1 ? numeric * 100 : numeric;
 }
 
 // ── Change Policy Modal ──────────────────────────────────────────────────────
@@ -172,7 +179,7 @@ const modalStyles = StyleSheet.create({
 
 // ── Main Policy Screen ───────────────────────────────────────────────────────
 export default function PlanSelectScreen({ route, navigation }) {
-  const { user } = route.params || {};
+  const [user, setUser] = useState(route.params?.user || null);
   const [policy, setPolicy] = useState(route.params?.policy || null);
   const [policyLoading, setPolicyLoading] = useState(!policy);
   const [selectedTier, setSelectedTier] = useState(policy?.plan_tier || 'standard');
@@ -187,13 +194,22 @@ export default function PlanSelectScreen({ route, navigation }) {
   // ── Fetch active policy on focus ──────────────────────────────────
   useFocusEffect(
     useCallback(() => {
-      async function fetchPolicy() {
+      async function fetchPolicyAndProfile() {
         setPolicyLoading(true);
         try {
-          const active = await getActivePolicy();
-          if (active?.id) {
-            setPolicy(active);
-            setSelectedTier(active.plan_tier);
+          const [session, active] = await Promise.all([
+            getMe().catch(() => null),
+            getActivePolicy().catch(() => null),
+          ]);
+
+          if (session?.id) {
+            setUser(session);
+          }
+
+          const nextPolicy = active?.id ? active : (session?.active_policy || null);
+          setPolicy(nextPolicy);
+          if (nextPolicy?.plan_tier) {
+            setSelectedTier(nextPolicy.plan_tier);
           }
         } catch (_) {
           // No policy or error — show plan picker
@@ -201,7 +217,7 @@ export default function PlanSelectScreen({ route, navigation }) {
           setPolicyLoading(false);
         }
       }
-      fetchPolicy();
+      fetchPolicyAndProfile();
     }, [])
   );
 
@@ -263,7 +279,8 @@ export default function PlanSelectScreen({ route, navigation }) {
     }
   }
 
-  const riskScore = quote?.ai_risk_score ?? user?.risk_score ?? 0;
+  const storedRiskScore = getStoredRiskScore(user?.risk_score);
+  const riskScore = quote?.ai_risk_score ?? storedRiskScore / 100;
   const riskLevel = getRiskLevel(riskScore);
   const selectedPlan = PLANS.find(p => p.tier === selectedTier);
   const basePremium = selectedPlan?.premium ?? 0;
@@ -325,11 +342,11 @@ export default function PlanSelectScreen({ route, navigation }) {
           <View style={styles.riskHeader}>
             <View>
               <Text style={styles.riskLabel}>Risk score</Text>
-              <Text style={styles.riskValue}>{formatPercentFromScore(user.risk_score)}</Text>
+              <Text style={styles.riskValue}>{formatPercentFromScore(storedRiskScore)}</Text>
             </View>
             <AppPill label={user.city} tone="accent" />
           </View>
-          <Text style={styles.riskNote}>{getRiskMessage(user.risk_score)}</Text>
+          <Text style={styles.riskNote}>{getRiskMessage(storedRiskScore)}</Text>
           <View style={styles.riskMeta}>
             <RiskMetaItem label="Platform" value={toTitleCase(user.platform)} />
             <RiskMetaItem label="Zone" value={user.delivery_zone} />
