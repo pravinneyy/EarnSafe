@@ -88,38 +88,40 @@ class WalletService:
 
     async def get_wallet_summary(self, user_id: int) -> dict:
         """
-        Returns everything the Wallet screen needs in one call:
-          - Current balance
-          - Total all-time claim count
-          - Weekly earned (sum of paid claims in rolling 7-day window)
-          - Weekly claim count (paid + approved this week)
-          - Max weekly payout from active policy (None if no policy)
-          - cap_exhausted flag
+        Returns everything the Wallet screen needs in one call.
+        Returns a zeroed summary if no wallet exists yet (instead of 404).
         """
-        wallet = await self.wallet_repo.get_by_user_id(user_id)
-        if not wallet:
-            raise NotFoundError("Wallet not found for user")
+        from app.models import ClaimStatus
 
-        # All-time claim count
+        wallet = await self.wallet_repo.get_by_user_id(user_id)
+
+        # ── All-time claims ──────────────────────────────────────────────────
         all_claims = await self.claim_repo.list_for_user(user_id)
         total_claims = len(all_claims)
 
-        # Weekly stats (rolling 7-day window)
-        window_start = datetime.now(timezone.utc) - timedelta(days=7)
-        weekly_claims = [
-            c for c in all_claims
-            if c.created_at and c.created_at.replace(tzinfo=timezone.utc) >= window_start
-            and c.status in ("paid", "approved", "triggered")
-        ]
-        weekly_claim_count = len(weekly_claims)
+        # ── Weekly window (rolling 7 days) ───────────────────────────────────
+        # Use naive UTC to safely compare with DB timestamps that may be naive
+        window_start_naive = datetime.utcnow() - timedelta(days=7)
+
+        _weekly_statuses = {ClaimStatus.paid, ClaimStatus.approved, ClaimStatus.triggered}
+
+        def _in_window(c) -> bool:
+            if not c.created_at:
+                return False
+            ts = c.created_at.replace(tzinfo=None)   # strip tz → naive UTC
+            return ts >= window_start_naive
+
+        weekly_claim_count = sum(
+            1 for c in all_claims
+            if _in_window(c) and c.status in _weekly_statuses
+        )
         weekly_earned = sum(
             float(c.claim_amount)
             for c in all_claims
-            if c.created_at and c.created_at.replace(tzinfo=timezone.utc) >= window_start
-            and c.status == "paid"
+            if _in_window(c) and c.status == ClaimStatus.paid
         )
 
-        # Policy cap
+        # ── Policy cap ───────────────────────────────────────────────────────
         policy = await self.policy_repo.get_active_for_user(user_id)
         max_weekly_payout = float(policy.max_weekly_payout) if policy else None
         cap_exhausted = (
@@ -127,11 +129,11 @@ class WalletService:
         )
 
         return {
-            "balance": float(wallet.balance),
+            "balance": float(wallet.balance) if wallet else 0.0,
             "total_claims": total_claims,
             "weekly_earned": round(weekly_earned, 2),
             "weekly_claim_count": weekly_claim_count,
             "max_weekly_payout": max_weekly_payout,
             "cap_exhausted": cap_exhausted,
-            "updated_at": wallet.updated_at,
+            "updated_at": wallet.updated_at if wallet else None,
         }

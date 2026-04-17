@@ -13,7 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getUserClaims, getWalletSummary, syncAutoClaims } from '../../../services/api';
 import { getSimulationWebSocketUrl } from '../../../services/config';
 import { Screen } from '../../../shared/components';
-import { darkColors, radii, shadows, spacing } from '../../../shared/theme';
+import { radii, shadows, spacing } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
 import { formatCurrency } from '../../../shared/utils/format';
 

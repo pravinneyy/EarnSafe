@@ -119,11 +119,11 @@ class WalletSummaryResponse(BaseModel):
 
     balance: float
     total_claims: int
-    weekly_earned: float           # sum of paid claims in last 7 days
-    weekly_claim_count: int        # number of paid/approved claims in last 7 days
-    max_weekly_payout: float | None  # None if no active policy
-    cap_exhausted: bool            # True when weekly_earned >= max_weekly_payout
-    updated_at: datetime
+    weekly_earned: float
+    weekly_claim_count: int
+    max_weekly_payout: Optional[float] = None
+    cap_exhausted: bool
+    updated_at: Optional[datetime] = None
 
 
 class WalletResponse(BaseModel):
