@@ -29,9 +29,18 @@ class TriggerService:
             if not policy:
                 continue
             data = await self.weather_service.get_weather_snapshot(lat=13.0827, lon=80.2707, zone=user.delivery_zone, tier=policy.plan_tier)
-            if not data["triggers"]["disruption_active"]:
+
+            # Use triggers dict as authoritative source (not ai active_disruption)
+            triggers = data.get("triggers", {})
+            if not triggers.get("disruption_active"):
                 continue
-            event_type = data["active_disruption"]
+
+            # Pick the highest-priority fired trigger as event_type
+            fired = triggers.get("triggers_fired", [])
+            event_type = fired[0]["trigger_id"] if fired else data.get("active_disruption", "heavy_rainfall")
+            if event_type == "None" or not event_type:
+                continue
+
             recent_event = await self.trigger_repo.get_recent_similar_event(
                 user_id=user.id,
                 event_type=event_type,
@@ -44,7 +53,7 @@ class TriggerService:
                 policy_id=policy.id,
                 zone=user.delivery_zone,
                 event_type=event_type,
-                severity="high" if data["triggers"]["trigger_count"] >= 2 else "medium",
+                severity="high" if triggers.get("trigger_count", 0) >= 2 else "medium",
                 status=TriggerEventStatus.detected,
                 payload=data,
                 eligible_for_claim=True,
@@ -82,10 +91,18 @@ class TriggerService:
             zone=user.delivery_zone,
             tier=policy.plan_tier,
         )
-        if not data["triggers"]["disruption_active"]:
+
+        # Use triggers as the authoritative disruption source
+        triggers = data.get("triggers", {})
+        if not triggers.get("disruption_active"):
             return {"status": "no_disruption", "disruption_active": False, "claim_sync": None}
 
-        event_type = data["active_disruption"]
+        # Derive event_type from fired triggers (always snake_case enum value)
+        fired = triggers.get("triggers_fired", [])
+        event_type = fired[0]["trigger_id"] if fired else data.get("active_disruption", "heavy_rainfall")
+        if not event_type or event_type == "None":
+            return {"status": "no_disruption", "disruption_active": False, "claim_sync": None}
+
         recent_event = await self.trigger_repo.get_recent_similar_event(
             user_id=user_id,
             event_type=event_type,
@@ -99,7 +116,7 @@ class TriggerService:
                 policy_id=policy.id,
                 zone=user.delivery_zone,
                 event_type=event_type,
-                severity="high" if data["triggers"]["trigger_count"] >= 2 else "medium",
+                severity="high" if triggers.get("trigger_count", 0) >= 2 else "medium",
                 status=TriggerEventStatus.detected,
                 payload=data,
                 eligible_for_claim=True,
