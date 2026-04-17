@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
-import { getUserClaims, getWallet } from '../../../services/api';
+import { getUserClaims, getWallet, syncAutoClaims } from '../../../services/api';
 import {
   AppCard,
   Screen,
@@ -39,6 +39,8 @@ export default function ClaimHistoryScreen({ route }) {
   // ── Load both wallet and claims ────────────────────────────────────
   async function loadData() {
     try {
+      await syncAutoClaims().catch(() => null);
+
       const [claimsData, walletData] = await Promise.all([
         getUserClaims(),
         getWallet(),

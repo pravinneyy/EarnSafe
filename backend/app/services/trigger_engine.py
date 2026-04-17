@@ -50,7 +50,7 @@ class TriggerEngine:
         self.trigger_repo = TriggerEventRepository(session)
         self.wallet_service = WalletService(session)
 
-    async def run_claim_pipeline(self) -> dict:
+    async def run_claim_pipeline(self, user_id: int | None = None) -> dict:
         """
         Process all unhandled eligible trigger events.
 
@@ -59,10 +59,13 @@ class TriggerEngine:
 
         Returns a summary dict suitable for Celery task result / monitoring.
         """
-        events = await self.trigger_repo.list_eligible_unprocessed()
+        if user_id is None:
+            events = await self.trigger_repo.list_eligible_unprocessed()
+        else:
+            events = await self.trigger_repo.list_eligible_unprocessed_for_user(user_id)
         logger.info(
             "TriggerEngine: pipeline started",
-            extra={"eligible_events": len(events)},
+            extra={"eligible_events": len(events), "user_id": user_id},
         )
 
         processed = 0

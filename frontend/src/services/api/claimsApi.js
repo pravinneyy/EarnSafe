@@ -5,6 +5,10 @@ export function getUserClaims() {
   return request('/claims/');
 }
 
+export function syncAutoClaims() {
+  return request('/claims/sync-auto', { method: 'POST' });
+}
+
 /** For backwards-compat callers that still pass userId — ignored, JWT is used */
 export function getUserClaimsById(_userId) {
   return request('/claims/');

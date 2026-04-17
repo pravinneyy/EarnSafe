@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies import DbSession, get_current_user
+from app.dependencies import DbSession, get_current_user, get_redis_client
 from app.models import User
 from app.schemas import ClaimCreate, ClaimResponse
 from app.services.claim_service import ClaimService
 from app.services.exceptions import AuthorizationError, NotFoundError, ValidationError
+from app.services.trigger_service import TriggerService
 
 router = APIRouter(prefix="/claims", tags=["Claims"])
 
@@ -17,6 +18,15 @@ router = APIRouter(prefix="/claims", tags=["Claims"])
 )
 async def get_my_claims(session: DbSession, current_user: User = Depends(get_current_user)):
     return await ClaimService(session).get_user_claims(current_user.id)
+
+
+@router.post("/sync-auto", summary="Sync automatic claims for current user")
+async def sync_auto_claims(
+    session: DbSession,
+    current_user: User = Depends(get_current_user),
+    redis=Depends(get_redis_client),
+):
+    return await TriggerService(session, redis).sync_live_claim_for_user(current_user.id)
 
 
 @router.post("/submit", response_model=ClaimResponse, status_code=201)
