@@ -206,14 +206,18 @@
                     body: JSON.stringify(payload)
                 });
                 
-                if(res.ok) { updateUIResults(active); }
+                if(res.ok) { 
+                    const data = await res.json();
+                    updateUIResults(active); }
             } catch (e) { alert("Error connecting to backend"); }
         }
 
-        function updateUIResults(isSimulating) {
-            document.getElementById('res-risk').innerText = isSimulating ? "0.9842" : "0.0000";
-            document.getElementById('res-disrupt').innerText = isSimulating ? "YES" : "NO";
-            document.getElementById('res-disrupt').className = isSimulating ? "text-red-500 font-bold" : "text-green-500 font-bold";
+        function updateUIResults(isSimulating, backendData) {
+    
+    const risk = backendData ? backendData.ai_risk_score : "0.0000";
+    const disrupt = backendData?.parametric_analysis?.is_disrupted ? "YES" : "NO";
+             document.getElementById('res-risk').innerText = risk;
+    document.getElementById('res-disrupt').innerText = disrupt;
             document.getElementById('res-source').innerText = isSimulating ? "Simulation Grid" : "Real API";
 
             const statusIcon = document.getElementById('status-icon');

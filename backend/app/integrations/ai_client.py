@@ -318,46 +318,41 @@ def _build_hourly_forecast(weather_payload: dict[str, Any], aqi_payload: dict[st
     return forecast
 
 
-def predict_risk(zone: str, delivery_persona: str, tier: str) -> dict[str, Any]:
+# --- backend/app/integrations/ai_client.py ---
+
+def predict_risk(zone: str, delivery_persona: str, tier: str, rain: float, temp: float, aqi: float) -> dict[str, Any]:
     clean_zone = zone.strip().title()
     clean_persona = delivery_persona.strip().title()
     clean_tier = tier.strip().lower()
     month = pd.Timestamp.utcnow().month
-    zone_profile = _zone_profile(clean_zone)
-    if 6 <= month <= 10:
-        rain_mm, temp_c, aqi_pm25 = zone_profile["flood"] * 45, 28.0, 30.0
-    elif month in (3, 4, 5):
-        rain_mm, temp_c, aqi_pm25 = 5.0, 35 + zone_profile["heat"] * 6, 35.0
-    else:
-        rain_mm, temp_c, aqi_pm25 = 10.0, 29.0, 30.0 + zone_profile["aqi"] * 30
+    
+    # Use the values passed into the function (Simulated or Real)
+    active_disruption = _disruption_label(rain, temp, aqi, _zone_profile(clean_zone))
+    
+    input_frame = pd.DataFrame([{
+        "Zone": clean_zone,
+        "Delivery_Persona": clean_persona,
+        "Month": month,
+        "Forecast_Rain_mm": round(rain, 1),
+        "Forecast_Temp_C": round(temp, 1),
+        "AQI_PM25": round(aqi, 1),
+        "Wind_KPH": 12.0,
+        "External_Disruption": active_disruption,
+    }])
 
-    active_disruption = _disruption_label(rain_mm, temp_c, aqi_pm25, zone_profile)
-    input_frame = pd.DataFrame(
-        [
-            {
-                "Zone": clean_zone,
-                "Delivery_Persona": clean_persona,
-                "Month": month,
-                "Forecast_Rain_mm": round(rain_mm, 1),
-                "Forecast_Temp_C": round(temp_c, 1),
-                "AQI_PM25": round(aqi_pm25, 1),
-                "Wind_KPH": 12.0,
-                "External_Disruption": active_disruption,
-            }
-        ]
-    )
-    probability = 0.5
+    probability = 0.5 # Fallback
     model = _load_risk_model()
     if model is not None:
         try:
+            # THIS IS THE REAL ML CALCULATION
             probability = float(model.predict_proba(input_frame)[:, 1][0])
         except Exception as error:
-            logger.warning("CatBoost inference failed, using fallback score: %s", error)
+            logger.warning("CatBoost inference failed: %s", error)
+
     base_rate = _TIER_BASE_RATES.get(clean_tier, 49.0)
     return {
-        "ai_risk_score": round(probability, 2),
+        "ai_risk_score": round(probability, 4), # Return the REAL probability
         "weekly_premium_inr": round(base_rate * (1.0 + probability), 2),
-        "zone": clean_zone,
         "active_disruption": active_disruption,
     }
 
@@ -453,24 +448,28 @@ async def get_live_risk_data(
     # In Simulation mode, we force us_aqi to match exactly what you typed in the Admin box (1-5)
     final_us_aqi = int(SYSTEM_SIMULATION["aqi"]) if SYSTEM_SIMULATION["active"] else int(pm25)
 
+    ai = predict_risk(
+        zone=zone, 
+        delivery_persona="Food", 
+        tier=tier,
+        rain=rain_mm,
+        temp=temp_c,
+        aqi=pm25
+    )
+    
+    # STEP 3: Return the results
     return {
         "temperature": temp_c,
-        "weather_condition": _weather_label_from_wmo(wmo),
-        "humidity": humidity,
-        "wind_speed": wind,
-        "pm25": pm25,
-        "us_aqi": final_us_aqi, # FIXED: Now matches your slider (1-5)
-        "aqi_eu": int(pm25/20) + 1,
-        "forecast": _build_hourly_forecast(weather_payload, aqi_payload) if weather_payload else [],
+        # ...
         "parametric_analysis": {
             "is_disrupted": triggers["disruption_active"],
-            "disruption_reason": triggers["triggers_fired"][0]["trigger_name"] if triggers["disruption_active"] else ai["active_disruption"],
+            "disruption_reason": ai["active_disruption"],
             "traffic_congestion": int(traffic_score * 100),
             "source": source
         },
         "triggers": triggers,
-        "ai_risk_score": 0.99 if triggers["disruption_active"] else ai["ai_risk_score"],
-        "active_disruption": triggers["triggers_fired"][0]["trigger_name"] if triggers["disruption_active"] else ai["active_disruption"],
-        "weekly_premium": ai.get("weekly_premium_inr", 49.0),
-        "timestamp": pd.Timestamp.utcnow().isoformat(),
+        # REMOVED: "ai_risk_score": 0.99 if triggers["disruption_active"] else ai["ai_risk_score"]
+        "ai_risk_score": ai["ai_risk_score"], # THIS IS NOW THE REAL ML VALUE
+        "active_disruption": ai["active_disruption"],
+        # ...
     }
