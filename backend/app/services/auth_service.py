@@ -278,6 +278,10 @@ class AuthService:
             "active_policy": active_policy,
             "last_policy_change_at": user.last_policy_change_at,
         }
+    async def get_current_user(self, user_id: int) -> User | None:
+        """Required by dependencies.py to verify the JWT owner."""
+        user = await self.user_repo.get_by_id(user_id)
+        return user
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

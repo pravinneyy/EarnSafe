@@ -25,7 +25,17 @@ async def get_current_user(
 ):
     try:
         payload = decode_access_token(credentials.credentials)
+        user_id = int(payload.get("sub"))
+        
         service = AuthService(session)
-        return await service.get_current_user(int(payload["sub"]))
+        user = await service.get_current_user(user_id)
+        
+        if not user:
+            raise NotFoundError("User not found")
+        return user
+        
     except (AuthenticationError, NotFoundError, ValueError, KeyError) as error:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from error
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid or expired token"
+        ) from error
