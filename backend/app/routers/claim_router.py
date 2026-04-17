@@ -38,6 +38,20 @@ async def auto_process_claims(session: DbSession, redis=Depends(get_redis_client
     }
 
 
+@router.post(
+    "/sync-auto",
+    status_code=200,
+    summary="Sync auto claims for current user",
+    description="Checks live disruption conditions for the authenticated user and creates a parametric claim if needed.",
+)
+async def sync_auto_claims(
+    session: DbSession,
+    current_user: User = Depends(get_current_user),
+    redis=Depends(get_redis_client),
+):
+    return await TriggerService(session, redis).sync_live_claim_for_user(current_user.id)
+
+
 @router.post("/submit", response_model=ClaimResponse, status_code=201)
 async def submit_claim(claim: ClaimCreate, session: DbSession, current_user: User = Depends(get_current_user)):
     if current_user.id != claim.user_id:

@@ -65,3 +65,17 @@ export function getApiBaseUrl() {
   cachedApiBaseUrl = PRODUCTION_API_BASE_URL;
   return cachedApiBaseUrl;
 }
+
+export function getSimulationWebSocketUrl() {
+  const apiBaseUrl = getApiBaseUrl();
+  try {
+    const url = new URL(apiBaseUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/ws/simulation';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return `${apiBaseUrl.replace(/^http/i, match => (match.toLowerCase() === 'https' ? 'wss' : 'ws'))}/ws/simulation`;
+  }
+}

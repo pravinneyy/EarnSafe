@@ -31,11 +31,19 @@ class TriggerService:
             data = await self.weather_service.get_weather_snapshot(lat=13.0827, lon=80.2707, zone=user.delivery_zone, tier=policy.plan_tier)
             if not data["triggers"]["disruption_active"]:
                 continue
+            event_type = data["active_disruption"]
+            recent_event = await self.trigger_repo.get_recent_similar_event(
+                user_id=user.id,
+                event_type=event_type,
+                since=datetime.now(timezone.utc) - timedelta(hours=CLAIM_COOLDOWN_HOURS),
+            )
+            if recent_event is not None:
+                continue
             event = TriggerEvent(
                 user_id=user.id,
                 policy_id=policy.id,
                 zone=user.delivery_zone,
-                event_type=data["active_disruption"],
+                event_type=event_type,
                 severity="high" if data["triggers"]["trigger_count"] >= 2 else "medium",
                 status=TriggerEventStatus.detected,
                 payload=data,

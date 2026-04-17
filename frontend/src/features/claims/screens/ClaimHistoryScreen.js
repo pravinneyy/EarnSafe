@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -10,6 +10,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 
 import { getUserClaims, getWallet, syncAutoClaims } from '../../../services/api';
+import { getSimulationWebSocketUrl } from '../../../services/config';
 import {
   AppCard,
   Screen,
@@ -33,11 +34,12 @@ export default function ClaimHistoryScreen({ route }) {
   const [refreshing, setRefreshing] = useState(false);
   const { colors } = useTheme();
   const pollRef = useRef(null);
+  const wsRef = useRef(null);
   const prevBalance = useRef(null);
   const balancePulse = useRef(new Animated.Value(1)).current;
 
   // ── Load both wallet and claims ────────────────────────────────────
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       await syncAutoClaims().catch(() => null);
 
@@ -68,7 +70,7 @@ export default function ClaimHistoryScreen({ route }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [balancePulse]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -81,11 +83,38 @@ export default function ClaimHistoryScreen({ route }) {
     useCallback(() => {
       setLoading(true);
       loadData();
-      pollRef.current = setInterval(loadData, POLL_MS);
+      pollRef.current = setInterval(() => {
+        loadData();
+      }, POLL_MS);
+
+      if (typeof WebSocket !== 'undefined') {
+        const socket = new WebSocket(getSimulationWebSocketUrl());
+        wsRef.current = socket;
+        socket.onmessage = event => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload?.type === 'REFRESH_DATA') {
+              loadData();
+            }
+          } catch (_) {
+            // Ignore malformed socket payloads and keep polling fallback alive.
+          }
+        };
+        socket.onclose = () => {
+          if (wsRef.current === socket) {
+            wsRef.current = null;
+          }
+        };
+      }
+
       return () => {
         clearInterval(pollRef.current);
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
       };
-    }, [])
+    }, [loadData])
   );
 
   // ── Derived stats ──────────────────────────────────────────────────
