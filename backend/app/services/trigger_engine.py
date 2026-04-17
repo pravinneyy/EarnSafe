@@ -33,8 +33,8 @@ from app.services.traffic_service import get_traffic_status
 logger = logging.getLogger(__name__)
 
 # ─── Configuration constants ────────────────────────────────────────────────
-WEEKLY_CLAIM_LIMIT = 2          # max claims per rolling 7-day window
-CLAIM_COOLDOWN_HOURS = 6        # min hours between consecutive paid claims
+WEEKLY_CLAIM_LIMIT   = 2          # max paid claims per rolling 7-day window
+CLAIM_COOLDOWN_HOURS = 1          # min hours between consecutive paid claims
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -184,34 +184,24 @@ class TriggerEngine:
             return "cap_exhausted"
         
 
-        # ── 5. Compute claim amount — Traffic & Zero guard ───────────────────
-        
-        # Default coverage from policy
-        base_coverage = Decimal(str(policy.daily_coverage))
-        
-        # TRAFFIC INTEGRATION:
-        if event.event_type == "traffic":
-            # Extract coords from the event payload
-            lat = event.payload.get("lat")
-            lon = event.payload.get("lon")
-            
-            if lat and lon:
-                traffic = await get_traffic_status(lat, lon)
-                
-                if not traffic.get("is_gridlock"):
-                    logger.info("TriggerEngine: skipping - Traffic not high enough for payout")
-                    return "cap_exhausted"
-                
-                # Adjust payout based on how bad the traffic is (e.g., 80% congestion = 80% of daily cap)
-                congestion_multiplier = Decimal(str(traffic.get("congestion_level", 0) / 100))
-                effective_coverage = base_coverage * congestion_multiplier
-            else:
-                effective_coverage = base_coverage
-        else:
-            effective_coverage = base_coverage
+        # ── 5. Compute claim amount — parametric fixed payout ─────────────────
+        #
+        # Parametric model: the payout is determined by which weather trigger
+        # fired, not by hours lost. The fixed_payout amount is stored in the
+        # event payload under triggers["total_fixed_payout"]. If missing (old
+        # events), fall back to policy.daily_coverage.
+        #
+        triggers_data = event.payload.get("triggers", {})
+        trigger_payout = triggers_data.get("total_fixed_payout", 0)
 
-        # Compute final claim amount — capped at weekly remaining budget
-        claim_amount = min(effective_coverage, remaining_cap)
+        if trigger_payout and trigger_payout > 0:
+            base_coverage = Decimal(str(trigger_payout))
+        else:
+            # Fallback: use policy daily_coverage for events without trigger data
+            base_coverage = Decimal(str(policy.daily_coverage))
+
+        # Cap at weekly remaining budget
+        claim_amount = min(base_coverage, remaining_cap)
 
         # Defensive zero guard
         if claim_amount <= Decimal("0"):
@@ -220,7 +210,7 @@ class TriggerEngine:
                 extra={
                     "event_id": event.id,
                     "user_id": user_id,
-                    "effective_coverage": str(effective_coverage),
+                    "base_coverage": str(base_coverage),
                     "remaining_cap": str(remaining_cap),
                 },
             )

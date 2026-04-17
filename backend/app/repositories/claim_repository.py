@@ -54,7 +54,7 @@ class ClaimRepository:
         Uses SELECT FOR UPDATE to prevent race conditions — always call
         inside an active DB transaction.
         """
-        window_start = self._week_window_start()
+        window_start = datetime.utcnow() - timedelta(days=7)
         result = await self.session.execute(
             select(Claim)
             .where(
@@ -77,11 +77,11 @@ class ClaimRepository:
         return result.scalar_one_or_none()
 
     async def weekly_payout_total(self, user_id: int) -> Decimal:
-        # BUG FIX: Ensure this is a SUM, not a single record lookup
+        """Sum of paid claim amounts in the rolling 7-day window."""
         query = select(func.sum(Claim.claim_amount)).where(
             Claim.user_id == user_id,
             Claim.status == ClaimStatus.paid,
-            Claim.created_at >= datetime.now() - timedelta(days=7)
+            Claim.created_at >= datetime.utcnow() - timedelta(days=7)
         )
         result = await self.session.execute(query)
         return result.scalar() or Decimal("0.00")

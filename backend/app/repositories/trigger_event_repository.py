@@ -61,12 +61,19 @@ class TriggerEventRepository:
         event_type: str,
         since: datetime,
     ) -> TriggerEvent | None:
+        """
+        Returns a recent UNPROCESSED event of the same type — used as a
+        dedup guard so we don't create two pending events for the same disruption.
+        Once an event is processed (claim created), it no longer blocks new events.
+        The claim-level cooldown in TriggerEngine handles repeat-claim throttling.
+        """
         result = await self.session.execute(
             select(TriggerEvent)
             .where(
                 TriggerEvent.user_id == user_id,
                 TriggerEvent.event_type == event_type,
                 TriggerEvent.created_at >= since,
+                TriggerEvent.status == TriggerEventStatus.detected,   # only unprocessed
             )
             .order_by(TriggerEvent.created_at.desc())
             .limit(1)

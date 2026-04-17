@@ -29,8 +29,16 @@ async def _build_admin_snapshot(
 async def _run_claim_sync(session: DbSession, request: Request) -> dict:
     redis = getattr(request.app.state, "redis", None)
     trigger_service = TriggerService(session, redis)
+
+    # Step 1: create TriggerEvents for all active users with live disruption
     created_events = await trigger_service.poll_weather_for_active_users()
+
+    # Step 2: commit so the pipeline sees the new events in a clean read
+    await session.commit()
+
+    # Step 3: run the claim pipeline (processes detected events → pay claims)
     pipeline_summary = await TriggerEngine(session).run_claim_pipeline()
+
     return {
         "events_detected": created_events,
         "pipeline_summary": pipeline_summary,
