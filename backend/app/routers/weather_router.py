@@ -17,17 +17,33 @@ async def _safe_weather(lat: float, lon: float, zone: str, tier: str, redis) -> 
         return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(exc))
 
 
+
+
 @router.get("/")
 async def get_weather_data(
     lat: float,
     lon: float,
     zone: str = Query("Chennai"),
     tier: str = Query("standard"),
+    # --- ADD THESE OPTIONAL PARAMS ---
+    temperature: float = Query(None),
+    aqi: float = Query(None),
+    rainfall: float = Query(None),
+    # ---------------------------------
     current_user: User = Depends(get_current_user),
     redis=Depends(get_redis_client),
 ):
     _ = current_user
-    return await _safe_weather(lat, lon, zone, tier, redis)
+    
+    return await WeatherService(redis).get_weather_snapshot(
+        lat=lat, 
+        lon=lon, 
+        zone=zone, 
+        tier=tier,
+        temperature=temperature,
+        aqi=aqi,
+        rainfall=rainfall
+    )
 
 
 @router.get("/forecast")

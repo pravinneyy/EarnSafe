@@ -7,7 +7,7 @@ from redis.asyncio import Redis
 from app.config import get_settings
 from app.database import init_db
 from app.middleware.logging import RequestLoggingMiddleware, configure_logging
-from app.routers import auth_router, claim_router, health_router, payment_router, policy_router, user_router, weather_router
+from app.routers import auth_router, claim_router, health_router, payment_router, policy_router, user_router, weather_router, admin_router
 
 
 @asynccontextmanager
@@ -33,7 +33,8 @@ app = FastAPI(
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -58,6 +59,8 @@ app.include_router(claim_router)
 
 # Weather / environmental data
 app.include_router(weather_router)
+
+app.include_router(admin_router.router)
 
 
 @app.get("/", tags=["Health"])

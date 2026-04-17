@@ -17,6 +17,16 @@ from redis.asyncio import Redis
 from app.config import get_settings
 from app.services.exceptions import IntegrationError
 
+# --- ADMIN SIMULATION STATE ---
+SYSTEM_SIMULATION = {
+    "active": False,
+    "temp": 25.0,
+    "rain": 0.0,
+    "aqi": 1,
+    "traffic": 0,
+    "reason": "Simulated Event"
+}
+
 logger = logging.getLogger(__name__)
 
 TRIGGERS = [
@@ -409,7 +419,28 @@ async def get_live_risk_data(*, lat: float, lon: float, zone: str = "Chennai", t
         logger.warning("Falling back to synthetic weather snapshot for %s,%s: %s", lat, lon, error)
         return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
 
-    current_weather = weather_payload.get("current", {})
+    if SYSTEM_SIMULATION["active"]:
+        
+        weather = {
+            "temp_c": SYSTEM_SIMULATION["temp"],
+            "humidity": 60,
+            "rain_mm": SYSTEM_SIMULATION["rain"],
+            "wind_kph": 10.0,
+            "wmo_code": 65 if SYSTEM_SIMULATION["rain"] > 15 else 1,
+            "source": "ADMIN_SIMULATION",
+        }
+        aqi = {
+            "pm25": SYSTEM_SIMULATION["aqi"] * 15, # Scaling 1-5 to PM2.5 levels
+            "pm10": SYSTEM_SIMULATION["aqi"] * 20,
+            "aqi_eu": SYSTEM_SIMULATION["aqi"],
+            "source": "ADMIN_SIMULATION",
+        }
+        traffic = {
+            "congestion_score": SYSTEM_SIMULATION["traffic"] / 100,
+            "source": "ADMIN_SIMULATION",
+        }
+    else:
+        current_weather = weather_payload.get("current", {})
     current_aqi = aqi_payload.get("current", {})
     weather = {
         "temp_c": round(current_weather.get("temperature_2m", 30.0), 1),
