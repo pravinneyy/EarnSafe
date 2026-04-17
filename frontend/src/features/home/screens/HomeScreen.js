@@ -279,36 +279,21 @@ export default function HomeScreen({ route }) {
 
 useEffect(() => {
   if (!locationKey || !location) return;
-  let isActive = true;
-
-  const fetchData = async () => {
-    try {
-      const bundle = await getWeatherBundle(location.latitude, location.longitude);
-      if (isActive && bundle) {
-        setWeather(bundle);
-        setAirQuality(bundle);
-        setForecast(bundle.forecast || []);
-      }
-    } catch (e) { console.log("Fetch Error", e); }
+  
+  const refreshData = async () => {
+    // Adding a random query parameter like ?cache=... forces the app to get new data every time
+    const data = await getWeatherBundle(location.latitude, location.longitude, `?cache=${Date.now()}`);
+    if (data) {
+      setWeather(data);
+      setAirQuality(data);
+      setForecast(data.forecast || []);
+    }
   };
 
-  fetchData(); // Initial load
-
-  // Setup WebSocket safely
-  let ws;
-  try {
-    ws = new WebSocket('wss://earnsafe-backend.onrender.com/ws/simulation');
-    ws.onmessage = () => fetchData(); // Instant refresh on broadcast
-    ws.onerror = () => console.log("WS Offline - Falling back to polling");
-  } catch (e) { console.log("WS Init Error", e); }
-
-  const interval = setInterval(fetchData, 5000); // 5s backup polling
-
-  return () => {
-    isActive = false;
-    clearInterval(interval);
-    if (ws) ws.close();
-  };
+  refreshData(); // First load
+  const timer = setInterval(refreshData, 3000); // REFRESH EVERY 3 SECONDS
+  
+  return () => clearInterval(timer);
 }, [locationKey]);
 
   // Expand Animation helper

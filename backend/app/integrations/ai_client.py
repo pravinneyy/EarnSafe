@@ -416,10 +416,16 @@ async def get_live_risk_data(
     if SYSTEM_SIMULATION["active"]:
         temp_c = float(SYSTEM_SIMULATION["temp"])
         rain_mm = float(SYSTEM_SIMULATION["rain"])
-        pm25 = float(SYSTEM_SIMULATION["aqi"]) * 25.0
+        
+        # FIX: Map slider 1-5 directly to US_AQI. 
+        # For calculation (pm25), we multiply by 25.
+        slider_aqi = int(SYSTEM_SIMULATION["aqi"])
+        pm25 = float(slider_aqi * 25.0) 
+        
         traffic_score = float(SYSTEM_SIMULATION["traffic"]) / 100.0
         wmo = 65 if rain_mm > 15 else (61 if rain_mm > 0 else 1)
         source = "SIMULATION_ACTIVE"
+        humidity, wind = 60, 12.0
     else:
         try:
             timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -437,21 +443,23 @@ async def get_live_risk_data(
                 wmo, humidity, wind = curr_w.get("weather_code", 0), curr_w.get("relative_humidity_2m", 60), curr_w.get("wind_speed_10m", 10.0)
                 source = "open-meteo"
         except Exception as e:
-            # If APIs fail and simulation is off, return the fallback helper
             return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(e))
 
     # --- STEP 2: CALCULATE UNIFIED ANALYSIS ---
     triggers = evaluate_triggers(rain_mm=rain_mm, temp_c=temp_c, wind_kph=wind, pm25=pm25, flood_risk=zone_profile["flood"])
     ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
     
-    # --- STEP 3: RETURN UNIFIED STRUCTURE (The Fix) ---
+    # --- STEP 3: RETURN UNIFIED STRUCTURE ---
+    # In Simulation mode, we force us_aqi to match exactly what you typed in the Admin box (1-5)
+    final_us_aqi = int(SYSTEM_SIMULATION["aqi"]) if SYSTEM_SIMULATION["active"] else int(pm25)
+
     return {
         "temperature": temp_c,
         "weather_condition": _weather_label_from_wmo(wmo),
         "humidity": humidity,
         "wind_speed": wind,
         "pm25": pm25,
-        "us_aqi": int(pm25), # Critical for UI
+        "us_aqi": final_us_aqi, # FIXED: Now matches your slider (1-5)
         "aqi_eu": int(pm25/20) + 1,
         "forecast": _build_hourly_forecast(weather_payload, aqi_payload) if weather_payload else [],
         "parametric_analysis": {
