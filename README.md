@@ -82,7 +82,7 @@ These two scenarios define the core value of the platform:
 | Basic    | Rs. 29         | Rs. 150                 | Rs. 800          |
 | Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
 | Pro      | Rs. 89         | Rs. 500                 | Rs. 3000          |
-=======
+
 | Basic    | Rs. 29         | Rs. 150                 | Rs. 800           |
 | Standard | Rs. 49         | Rs. 300                 | Rs. 1500          |
 | Pro      | Rs. 89         | Rs. 500                 | Rs. 2500          |
