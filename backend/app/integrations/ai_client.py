@@ -318,41 +318,60 @@ def _build_hourly_forecast(weather_payload: dict[str, Any], aqi_payload: dict[st
     return forecast
 
 
-# --- backend/app/integrations/ai_client.py ---
-
-def predict_risk(zone: str, delivery_persona: str, tier: str, rain: float, temp: float, aqi: float) -> dict[str, Any]:
+def predict_risk(
+    zone: str,
+    delivery_persona: str,
+    tier: str,
+    rain: float | None = None,
+    temp: float | None = None,
+    aqi: float | None = None,
+) -> dict[str, Any]:
     clean_zone = zone.strip().title()
     clean_persona = delivery_persona.strip().title()
     clean_tier = tier.strip().lower()
     month = pd.Timestamp.utcnow().month
-    
-    # Use the values passed into the function (Simulated or Real)
-    active_disruption = _disruption_label(rain, temp, aqi, _zone_profile(clean_zone))
-    
-    input_frame = pd.DataFrame([{
-        "Zone": clean_zone,
-        "Delivery_Persona": clean_persona,
-        "Month": month,
-        "Forecast_Rain_mm": round(rain, 1),
-        "Forecast_Temp_C": round(temp, 1),
-        "AQI_PM25": round(aqi, 1),
-        "Wind_KPH": 12.0,
-        "External_Disruption": active_disruption,
-    }])
+    zone_profile = _zone_profile(clean_zone)
 
-    probability = 0.5 # Fallback
+    if 6 <= month <= 10:
+        default_rain_mm, default_temp_c, default_aqi_pm25 = zone_profile["flood"] * 45, 28.0, 30.0
+    elif month in (3, 4, 5):
+        default_rain_mm, default_temp_c, default_aqi_pm25 = 5.0, 35 + zone_profile["heat"] * 6, 35.0
+    else:
+        default_rain_mm, default_temp_c, default_aqi_pm25 = 10.0, 29.0, 30.0 + zone_profile["aqi"] * 30
+
+    rain_mm = round(float(default_rain_mm if rain is None else rain), 1)
+    temp_c = round(float(default_temp_c if temp is None else temp), 1)
+    aqi_pm25 = round(float(default_aqi_pm25 if aqi is None else aqi), 1)
+    active_disruption = _disruption_label(rain_mm, temp_c, aqi_pm25, zone_profile)
+
+    input_frame = pd.DataFrame(
+        [
+            {
+                "Zone": clean_zone,
+                "Delivery_Persona": clean_persona,
+                "Month": month,
+                "Forecast_Rain_mm": rain_mm,
+                "Forecast_Temp_C": temp_c,
+                "AQI_PM25": aqi_pm25,
+                "Wind_KPH": 12.0,
+                "External_Disruption": active_disruption,
+            }
+        ]
+    )
+
+    probability = 0.5
     model = _load_risk_model()
     if model is not None:
         try:
-            # THIS IS THE REAL ML CALCULATION
             probability = float(model.predict_proba(input_frame)[:, 1][0])
         except Exception as error:
-            logger.warning("CatBoost inference failed: %s", error)
+            logger.warning("CatBoost inference failed, using fallback score: %s", error)
 
     base_rate = _TIER_BASE_RATES.get(clean_tier, 49.0)
     return {
-        "ai_risk_score": round(probability, 4), # Return the REAL probability
+        "ai_risk_score": round(probability, 4),
         "weekly_premium_inr": round(base_rate * (1.0 + probability), 2),
+        "zone": clean_zone,
         "active_disruption": active_disruption,
     }
 
@@ -386,41 +405,36 @@ def evaluate_triggers(*, rain_mm: float, temp_c: float, wind_kph: float, pm25: f
     }
 
 
-# --- ai_client.py ---
-
-# ... (keep your existing imports and TRIGGERS) ...
-
-# --- Updated ai_client.py ---
-
-# --- backend/app/integrations/ai_client.py ---
-
-# --- backend/app/integrations/ai_client.py ---
-
 async def get_live_risk_data(
-    *, lat: float, lon: float, zone: str = "Chennai", tier: str = "standard", redis: Redis | None = None, **kwargs
+    *,
+    lat: float,
+    lon: float,
+    zone: str = "Chennai",
+    tier: str = "standard",
+    redis: Redis | None = None,
+    sim_temp: float | None = None,
+    sim_aqi: float | None = None,
+    sim_rain: float | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
+    manual_override_active = any(value is not None for value in (sim_temp, sim_aqi, sim_rain))
     zone_profile = _zone_profile(zone)
-    
-    # Initialize variables with default safe values
-    weather_payload, aqi_payload = {}, {}
-    temp_c, rain_mm, pm25, wmo, humidity, wind, traffic_score = 28.0, 0.0, 20.0, 0, 60, 10.0, 0.35
-    source = "fallback"
 
-    # --- STEP 1: GATHER RAW DATA ---
+    weather_payload: dict[str, Any] = {}
+    aqi_payload: dict[str, Any] = {}
+
     if SYSTEM_SIMULATION["active"]:
         temp_c = float(SYSTEM_SIMULATION["temp"])
         rain_mm = float(SYSTEM_SIMULATION["rain"])
-        
-        # FIX: Map slider 1-5 directly to US_AQI. 
-        # For calculation (pm25), we multiply by 25.
         slider_aqi = int(SYSTEM_SIMULATION["aqi"])
-        pm25 = float(slider_aqi * 25.0) 
-        
+        pm25 = float(slider_aqi * 25.0)
+        pm10 = round(pm25 * 1.35, 1)
+        aqi_eu = max(1, min(5, slider_aqi))
         traffic_score = float(SYSTEM_SIMULATION["traffic"]) / 100.0
         wmo = 65 if rain_mm > 15 else (61 if rain_mm > 0 else 1)
-        source = "SIMULATION_ACTIVE"
-        humidity, wind = 60, 12.0
+        source = "simulation-active"
+        humidity = 60
+        wind = 12.0
     else:
         try:
             timeout = httpx.Timeout(settings.request_timeout_seconds)
@@ -430,46 +444,90 @@ async def get_live_risk_data(
                         params={"latitude": lat, "longitude": lon, "current": ["temperature_2m", "rain", "weather_code", "relative_humidity_2m", "wind_speed_10m"], "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"], "forecast_hours": 12, "timezone": "Asia/Kolkata"},
                         redis=redis, cache_key=_cache_key("weather", {"lat": lat, "lon": lon})),
                     _get_with_retry(client, f"{settings.open_meteo_air_quality_base_url}/v1/air-quality", 
-                        params={"latitude": lat, "longitude": lon, "current": ["pm2_5"], "hourly": ["pm2_5", "pm10", "european_aqi"], "timezone": "Asia/Kolkata"},
+                        params={"latitude": lat, "longitude": lon, "current": ["pm2_5", "pm10", "european_aqi"], "hourly": ["pm2_5", "pm10", "european_aqi"], "timezone": "Asia/Kolkata"},
                         redis=redis, cache_key=_cache_key("aqi", {"lat": lat, "lon": lon}))
                 )
-                curr_w, curr_a = weather_payload.get("current", {}), aqi_payload.get("current", {})
-                temp_c, rain_mm, pm25 = curr_w.get("temperature_2m", 28.0), curr_w.get("rain", 0.0), curr_a.get("pm2_5", 20.0)
-                wmo, humidity, wind = curr_w.get("weather_code", 0), curr_w.get("relative_humidity_2m", 60), curr_w.get("wind_speed_10m", 10.0)
-                source = "open-meteo"
-        except Exception as e:
-            return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(e))
+        except Exception as error:
+            logger.warning("API Fetch Failed: %s. Using simulation or fallback.", error)
+            if not manual_override_active:
+                return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(error))
 
-    # --- STEP 2: CALCULATE UNIFIED ANALYSIS ---
-    triggers = evaluate_triggers(rain_mm=rain_mm, temp_c=temp_c, wind_kph=wind, pm25=pm25, flood_risk=zone_profile["flood"])
-    ai = predict_risk(zone=zone, delivery_persona="Food", tier=tier)
-    
-    # --- STEP 3: RETURN UNIFIED STRUCTURE ---
-    # In Simulation mode, we force us_aqi to match exactly what you typed in the Admin box (1-5)
-    final_us_aqi = int(SYSTEM_SIMULATION["aqi"]) if SYSTEM_SIMULATION["active"] else int(pm25)
+        curr_w = weather_payload.get("current", {})
+        curr_a = aqi_payload.get("current", {})
+        override_pm25 = _pm25_from_aqi_override(sim_aqi)
 
+        temp_c = round(float(sim_temp) if sim_temp is not None else float(curr_w.get("temperature_2m", 28.0)), 1)
+        rain_mm = round(float(sim_rain) if sim_rain is not None else float(curr_w.get("rain", 0.0)), 1)
+        pm25 = override_pm25 if override_pm25 is not None else round(float(curr_a.get("pm2_5", 20.0) or 20.0), 1)
+        pm10 = round(float(curr_a.get("pm10", pm25 * 1.35) or (pm25 * 1.35)), 1)
+        aqi_eu = int(curr_a.get("european_aqi", max(1, min(5, int(round(pm25 / 20)))) ) or max(1, min(5, int(round(pm25 / 20)))))
+        traffic_score = 0.4
+        source = "manual-override" if manual_override_active else "open-meteo"
+        if sim_rain is not None:
+            wmo = 65 if rain_mm > 15 else 61 if rain_mm > 0 else 1
+        else:
+            wmo = int(curr_w.get("weather_code", 0) or 0)
+        humidity = int(curr_w.get("relative_humidity_2m", 60) or 60)
+        wind = round(float(curr_w.get("wind_speed_10m", 10.0) or 10.0), 1)
+
+    triggers = evaluate_triggers(
+        rain_mm=rain_mm,
+        temp_c=temp_c,
+        wind_kph=wind,
+        pm25=pm25,
+        flood_risk=zone_profile["flood"],
+    )
     ai = predict_risk(
-        zone=zone, 
-        delivery_persona="Food", 
+        zone=zone,
+        delivery_persona="Food",
         tier=tier,
         rain=rain_mm,
         temp=temp_c,
-        aqi=pm25
+        aqi=pm25,
     )
-    
-    # STEP 3: Return the results
+
+    weather_condition = _weather_label_from_wmo(wmo)
+    weather = {
+        "temp_c": temp_c,
+        "humidity": humidity,
+        "rain_mm": rain_mm,
+        "wind_kph": wind,
+        "wmo_code": wmo,
+        "source": source,
+    }
+    aqi = {
+        "pm25": pm25,
+        "pm10": pm10,
+        "aqi_eu": aqi_eu,
+        "source": source,
+    }
+    traffic = {
+        "congestion_score": round(traffic_score, 2),
+        "source": source,
+    }
+
     return {
         "temperature": temp_c,
-        # ...
+        "weather_condition": weather_condition,
+        "humidity": humidity,
+        "wind_speed": wind,
+        "pm25": pm25,
+        "pm10": pm10,
+        "aqi_eu": aqi_eu,
+        "forecast": _build_hourly_forecast(weather_payload, aqi_payload) if weather_payload else [],
         "parametric_analysis": {
             "is_disrupted": triggers["disruption_active"],
             "disruption_reason": ai["active_disruption"],
-            "traffic_congestion": int(traffic_score * 100),
-            "source": source
+            "traffic_congestion": int(round(traffic_score * 100)),
+            "source": source,
         },
+        "weather": weather,
+        "aqi": aqi,
+        "traffic": traffic,
         "triggers": triggers,
-        # REMOVED: "ai_risk_score": 0.99 if triggers["disruption_active"] else ai["ai_risk_score"]
-        "ai_risk_score": ai["ai_risk_score"], # THIS IS NOW THE REAL ML VALUE
+        "ai_risk_score": ai["ai_risk_score"],
         "active_disruption": ai["active_disruption"],
-        # ...
+        "weekly_premium": ai["weekly_premium_inr"],
+        "zone_risk_profile": zone_profile,
+        "timestamp": pd.Timestamp.utcnow().isoformat(),
     }
