@@ -21,6 +21,7 @@ import LiveMap from '../../../shared/components/LiveMap';
 import { colors, radii, shadows, spacing, typography } from '../../../shared/theme';
 import { useTheme } from '../../../shared/theme/ThemeContext';
 import WeatherMap from '../../../shared/components/WeatherMap';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const LOCATION_PRECISION = 3;
@@ -191,6 +192,7 @@ export default function HomeScreen({ route }) {
 
   const mapRef = useRef(null);
   const { isDark, colors: c } = useTheme();
+  const insets = useSafeAreaInsets();
 
   // Location state
   const [permissionStatus, setPermissionStatus] = useState('loading');
@@ -356,11 +358,11 @@ useEffect(() => {
       />
 
       {/* ── TOP OVERLAY: Greeting + Status ── */}
-      <View style={styles.overlayTop}>
+      <View style={[styles.overlayTop, { top: insets.top + 8 }]}>
         <View style={[styles.greetingBar, { backgroundColor: overlayBg }]}>
           <View>
             <Text style={[styles.greetingSmall, { color: overlayMuted }]}>{greeting}</Text>
-            <Text style={[styles.greetingName, { color: overlayText }]}>{firstName}</Text>
+            <Text style={[styles.greetingName, { color: overlayText }]}>Welcome back, {firstName} 👋</Text>
           </View>
           <AppPill
             label={policy ? 'Covered' : 'No Policy'}
@@ -478,18 +480,18 @@ const styles = StyleSheet.create({
 
   overlayTop: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 54 : 36,
+    top: 36,            // overridden inline with insets.top + 8
     left: spacing.md, right: spacing.md,
     zIndex: 10,
   },
   greetingBar: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', borderRadius: radii.md,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
-    ...shadows.sm,
+    alignItems: 'center', borderRadius: radii.lg,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4,
+    ...shadows.card,
   },
-  greetingSmall: { fontSize: 12, fontWeight: '500' },
-  greetingName: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
+  greetingSmall: { fontSize: 11, fontWeight: '500', letterSpacing: 0.2 },
+  greetingName:  { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
 
   overlayBottom: {
     position: 'absolute',

@@ -8,7 +8,7 @@ from app.models import TriggerEvent, TriggerEventStatus
 from app.repositories.policy_repository import PolicyRepository
 from app.repositories.trigger_event_repository import TriggerEventRepository
 from app.repositories.user_repository import UserRepository
-from app.services.trigger_engine import CLAIM_COOLDOWN_MINUTES, TriggerEngine
+from app.services.trigger_engine import CLAIM_COOLDOWN_HOURS, TriggerEngine
 from app.services.weather_service import WeatherService
 
 
@@ -35,7 +35,7 @@ class TriggerService:
             recent_event = await self.trigger_repo.get_recent_similar_event(
                 user_id=user.id,
                 event_type=event_type,
-                since=datetime.now(timezone.utc) - timedelta(minutes=CLAIM_COOLDOWN_MINUTES),
+                since=datetime.now(timezone.utc) - timedelta(hours=CLAIM_COOLDOWN_HOURS),
             )
             if recent_event is not None:
                 continue
@@ -89,7 +89,7 @@ class TriggerService:
         recent_event = await self.trigger_repo.get_recent_similar_event(
             user_id=user_id,
             event_type=event_type,
-            since=datetime.now(timezone.utc) - timedelta(minutes=CLAIM_COOLDOWN_MINUTES),
+            since=datetime.now(timezone.utc) - timedelta(hours=CLAIM_COOLDOWN_HOURS),
         )
 
         event_created = False

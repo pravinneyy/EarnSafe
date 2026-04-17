@@ -33,8 +33,8 @@ from app.services.traffic_service import get_traffic_status
 logger = logging.getLogger(__name__)
 
 # ─── Configuration constants ────────────────────────────────────────────────
-WEEKLY_CLAIM_LIMIT     = 5    # max paid claims per rolling 7-day window
-CLAIM_COOLDOWN_MINUTES = 1    # min minutes between consecutive paid claims
+WEEKLY_CLAIM_LIMIT   = 2    # max paid claims per rolling 7-day window
+CLAIM_COOLDOWN_HOURS = 6    # min hours between consecutive paid claims
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -140,14 +140,14 @@ class TriggerEngine:
         last_claim = await self.claim_repo.get_last_paid_claim(user_id)
         if last_claim and last_claim.created_at:
             elapsed = datetime.now(timezone.utc) - last_claim.created_at.replace(tzinfo=timezone.utc)
-            if elapsed < timedelta(minutes=CLAIM_COOLDOWN_MINUTES):
+            if elapsed < timedelta(hours=CLAIM_COOLDOWN_HOURS):
                 logger.info(
                     "TriggerEngine: skipping event — cooldown active",
                     extra={
                         "event_id": event.id,
                         "user_id": user_id,
-                        "seconds_since_last_claim": round(elapsed.total_seconds(), 1),
-                        "cooldown_minutes": CLAIM_COOLDOWN_MINUTES,
+                        "hours_since_last_claim": round(elapsed.total_seconds() / 3600, 2),
+                        "cooldown_hours": CLAIM_COOLDOWN_HOURS,
                     },
                 )
                 return "cooldown"
