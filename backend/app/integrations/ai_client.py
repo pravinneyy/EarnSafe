@@ -30,11 +30,11 @@ SYSTEM_SIMULATION = {
 logger = logging.getLogger(__name__)
 
 TRIGGERS = [
-    {"id": "heavy_rainfall",  "name": "Heavy Rainfall",         "threshold": 20.0, "field": "rain_mm",  "fixed_payout": 500},
-    {"id": "flood_alert",     "name": "Severe Waterlogging",    "threshold": 50.0, "field": "rain_mm",  "fixed_payout": 800},
-    {"id": "extreme_heat",    "name": "Extreme Heat",           "threshold": 42.0, "field": "temp_c",   "fixed_payout": 400},
-    {"id": "severe_aqi",      "name": "Hazardous Air Quality",  "threshold": 75.0, "field": "pm25",     "fixed_payout": 300},
-    {"id": "dense_fog",       "name": "Dangerous Wind Speed",   "threshold": 60.0, "field": "wind_kph", "fixed_payout": 350},
+    {"id": "heavy_rainfall", "name": "Heavy Rainfall", "threshold": 20.0, "field": "rain_mm", "fixed_payout": 500},
+    {"id": "severe_waterlogging", "name": "Severe Waterlogging", "threshold": 50.0, "field": "rain_mm", "fixed_payout": 800},
+    {"id": "extreme_heat", "name": "Extreme Heat", "threshold": 42.0, "field": "temp_c", "fixed_payout": 400},
+    {"id": "hazardous_aqi", "name": "Hazardous Air Quality", "threshold": 75.0, "field": "pm25", "fixed_payout": 300},
+    {"id": "high_wind", "name": "Dangerous Wind Speed", "threshold": 60.0, "field": "wind_kph", "fixed_payout": 350},
 ]
 
 ZONE_RISK_MAP = {
@@ -242,15 +242,14 @@ def _zone_profile(zone: str) -> dict[str, float]:
 
 
 def _disruption_label(rain_mm: float, temp_c: float, aqi_pm25: float, zone_profile: dict[str, float]) -> str:
-    """Returns a DisruptionType-compatible string (snake_case) or 'None'."""
     if rain_mm > 50 and zone_profile.get("flood", 0.5) > 0.6:
-        return "flood_alert"
+        return "Severe Waterlogging"
     if rain_mm > 20:
-        return "heavy_rainfall"
+        return "Heavy Rainfall"
     if temp_c > 42:
-        return "extreme_heat"
+        return "Extreme Heat"
     if aqi_pm25 > 75:
-        return "severe_aqi"
+        return "Severe AQI"
     return "None"
 
 
