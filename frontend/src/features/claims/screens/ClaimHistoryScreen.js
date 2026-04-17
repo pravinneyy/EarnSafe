@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
-import { getUserClaims, getWallet, syncAutoClaims } from '../../../services/api';
+import { getUserClaims, getWallet, syncAutoClaims, getActivePolicy } from '../../../services/api';
 import { getSimulationWebSocketUrl } from '../../../services/config';
 import {
   AppCard,
@@ -30,6 +30,7 @@ export default function ClaimHistoryScreen({ route }) {
   const { user } = route.params || {};
   const [claims, setClaims] = useState([]);
   const [wallet, setWallet] = useState(null);
+  const [activePolicy, setActivePolicy] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { colors } = useTheme();
@@ -43,10 +44,12 @@ export default function ClaimHistoryScreen({ route }) {
     try {
       await syncAutoClaims().catch(() => null);
 
-      const [claimsData, walletData] = await Promise.all([
+      const [claimsData, walletData, policyData] = await Promise.all([
         getUserClaims(),
         getWallet(),
+        getActivePolicy().catch(() => null),
       ]);
+      if (policyData) setActivePolicy(policyData);
 
       // Sort newest first
       setClaims([...claimsData].sort((a, b) =>
@@ -193,7 +196,9 @@ export default function ClaimHistoryScreen({ route }) {
       </View>
       <View style={styles.statsRow}>
         <StatCard label="Success rate" value={formatPercentFromRatio(approvalRatio)} />
-        <StatCard label="Max/week" value="2 claims" />
+        {activePolicy?.max_weekly_payout != null && (
+          <StatCard label="Max/week" value={formatCurrency(activePolicy.max_weekly_payout)} />
+        )}
       </View>
 
 
