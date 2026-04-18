@@ -45,12 +45,12 @@ class Settings(BaseSettings):
     celery_result_backend: str | None = None
 
     # ── Firebase Phone Auth ────────────────────────────────────────────────
-    # FIREBASE_SERVICE_ACCOUNT_JSON: base64-encoded Firebase service account JSON
-    # Get it from: Firebase Console → Project Settings → Service accounts → Generate key
-    # Then run: base64 -w0 service-account.json (Linux/macOS) or
-    #           [Convert]::ToBase64String([IO.File]::ReadAllBytes("service-account.json")) (PowerShell)
-    firebase_service_account_json: SecretStr | None = None  # base64-encoded JSON
-    firebase_project_id: str | None = None                  # used for token verification fallback
+    firebase_service_account_json: SecretStr | None = None
+    firebase_project_id: str | None = None
+
+    # ── Admin ──────────────────────────────────────────────────────────────
+    # Set ADMIN_PHONE in .env — never hardcode a phone number in source code
+    admin_phone: str | None = None
 
     @computed_field
     @property
@@ -67,7 +67,6 @@ class Settings(BaseSettings):
     def normalize_database_url(cls, value: str) -> str:
         if value is None:
             return value
-
         database_url = str(value).strip()
         if database_url.startswith("postgresql+asyncpg://"):
             return database_url

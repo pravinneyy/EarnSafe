@@ -1,0 +1,40 @@
+{
+  "risk_model": {
+    "version": "v2.0",
+    "name": "earnsafe_catboost_risk",
+    "algorithm": "CatBoostClassifier",
+    "trained_on": "2026-04-04",
+    "training_rows": 600,
+    "features": [
+      "Zone",
+      "Delivery_Persona",
+      "Month",
+      "Forecast_Rain_mm",
+      "Forecast_Temp_C",
+      "AQI_PM25",
+      "Wind_KPH",
+      "External_Disruption"
+    ],
+    "target": "Income_Loss",
+    "description": "Trained on 600 rows of synthetic Chennai food delivery data covering monsoon, summer and dry season patterns across 10 delivery zones."
+  },
+  "fraud_model": {
+    "version": "v2.0",
+    "name": "earnsafe_isolation_forest",
+    "algorithm": "IsolationForest",
+    "trained_on": "2026-04-04",
+    "training_rows": 330,
+    "contamination": 0.09,
+    "features": [
+      "reported_rain_mm",
+      "hours_worked_before_claim",
+      "location_match_score"
+    ],
+    "fraud_patterns": [
+      "gps_spoof",
+      "inflate_hours",
+      "dry_weather_claim"
+    ],
+    "description": "Trained on 300 normal claims and 30 fraudulent patterns across GPS spoofing, hour inflation and dry-weather claims."
+  }
+}

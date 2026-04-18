@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.dependencies import get_current_user, get_redis_client
-from app.integrations.ai_client import _build_fallback_snapshot
 from app.models import User
 from app.services.weather_service import WeatherService
 
@@ -29,10 +28,14 @@ async def _safe_weather(
             aqi=aqi,
             rainfall=rainfall,
         )
-    except Exception as exc:  # noqa: BLE001
-        return _build_fallback_snapshot(lat=lat, lon=lon, zone=zone, tier=tier, reason=str(exc))
-
-
+    except Exception as exc:
+        # WeatherService.get_weather_snapshot already handles fallback internally.
+        # If it still raises, return a minimal safe response.
+        return {
+            "error":   "weather_unavailable",
+            "reason":  str(exc),
+            "triggers": {"disruption_active": False, "triggers_fired": [], "total_fixed_payout": 0},
+        }
 
 
 @router.get("/")
@@ -41,25 +44,16 @@ async def get_weather_data(
     lon: float,
     zone: str = Query("Chennai"),
     tier: str = Query("standard"),
-    # --- ADD THESE OPTIONAL PARAMS ---
     temperature: float = Query(None),
     aqi: float = Query(None),
     rainfall: float = Query(None),
-    # ---------------------------------
     current_user: User = Depends(get_current_user),
     redis=Depends(get_redis_client),
 ):
     _ = current_user
-
     return await _safe_weather(
-        lat=lat,
-        lon=lon,
-        zone=zone,
-        tier=tier,
-        redis=redis,
-        temperature=temperature,
-        aqi=aqi,
-        rainfall=rainfall,
+        lat=lat, lon=lon, zone=zone, tier=tier, redis=redis,
+        temperature=temperature, aqi=aqi, rainfall=rainfall,
     )
 
 

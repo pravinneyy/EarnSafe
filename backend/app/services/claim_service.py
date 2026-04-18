@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from redis.asyncio import Redis
 
 from app.integrations.ai_client import get_live_risk_data
 from app.models import Claim, ClaimStatus
@@ -11,15 +12,17 @@ from app.schemas import ClaimCreate
 from app.services.exceptions import AuthorizationError, NotFoundError, ValidationError
 from app.services.fraud_service import detect_claim_anomaly, score_location_trust
 
-PLAN_DAILY_CAPS = {"basic": 150.0, "standard": 350.0, "pro": 500.0}
+# Must match PLAN_CONFIG in premium_service.py
+PLAN_DAILY_CAPS = {"basic": 300.0, "standard": 500.0, "pro": 800.0}
 
 
 class ClaimService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, redis: Redis | None = None) -> None:
         self.session = session
-        self.claim_repo = ClaimRepository(session)
+        self.redis   = redis
+        self.claim_repo  = ClaimRepository(session)
         self.policy_repo = PolicyRepository(session)
-        self.user_repo = UserRepository(session)
+        self.user_repo   = UserRepository(session)
 
     async def submit_claim(self, payload: ClaimCreate) -> Claim:
         """
@@ -77,18 +80,18 @@ class ClaimService:
                     lon=payload.lon,
                     zone=user.delivery_zone or user.city,
                     tier=policy.plan_tier,
+                    redis=self.redis,  # use cache — avoids redundant HTTP call
                 )
                 live_rain_mm = float(live.get("weather", {}).get("rain_mm", 0.0))
             except Exception:
                 signals.append("live weather verification unavailable")
 
         location_trust, location_signals = score_location_trust(
-            is_mock_location   = payload.is_mock_location,
-            device_speed_kph   = payload.device_speed_kph,
-            reported_rain_mm   = payload.reported_rain_mm,
-            live_rain_mm       = live_rain_mm,
+            is_mock_location = payload.is_mock_location,
+            device_speed_kph = payload.device_speed_kph,
+            reported_rain_mm = payload.reported_rain_mm,
+            live_rain_mm     = live_rain_mm,
         )
-        # Convert trust (1=good, 0=bad) → fraud contribution
         location_fraud_contribution = round((1.0 - location_trust) * 0.50, 2)
         if location_fraud_contribution > 0:
             fraud_score += location_fraud_contribution
@@ -144,4 +147,3 @@ class ClaimService:
 
     async def get_user_claims(self, user_id: int) -> list[Claim]:
         return await self.claim_repo.list_for_user(user_id)
-
